@@ -57,11 +57,8 @@
   --color-jade-800: #004D30;
   --color-jade-900: #002E1C;
 
-  /* Animations */
-  --animate-flip-left: flip-left 0.4s ease-in-out;
-  --animate-flip-left-back: flip-left-back 0.4s ease-in-out;
-  --animate-flip-right: flip-right 0.4s ease-in-out;
-  --animate-flip-right-back: flip-right-back 0.4s ease-in-out;
+  --animate-page-flip-next: pageFlipNext 1s cubic-bezier(0.645, 0.045, 0.355, 1);
+  --animate-page-flip-prev: pageFlipPrev 1s cubic-bezier(0.645, 0.045, 0.355, 1);
 }
 
 :root {
@@ -142,29 +139,54 @@
   }
 }
 
-/* Book Flip Animations */
-@keyframes flip-left {
-  0% { transform: rotateY(0deg); opacity: 1; }
-  50% { transform: rotateY(-15deg); opacity: 0.7; }
-  100% { transform: rotateY(0deg); opacity: 1; }
+/* ═══════════════════════════════════════════════
+   Realistic Book Page Flip Animations
+   ═══════════════════════════════════════════════ */
+
+/* Flip NEXT: right page turns over to the left (like turning a real page forward)
+   The page rotates from 0° → -180° around its LEFT edge (the spine) */
+@keyframes pageFlipNext {
+  0% {
+    transform: rotateY(0deg);
+    box-shadow: 0 0 20px rgba(0,0,0,0.2);
+  }
+  15% {
+    box-shadow: -10px 0 30px rgba(0,0,0,0.3);
+  }
+  50% {
+    transform: rotateY(-90deg);
+    box-shadow: -5px 0 25px rgba(0,0,0,0.4);
+  }
+  85% {
+    box-shadow: 5px 0 20px rgba(0,0,0,0.2);
+  }
+  100% {
+    transform: rotateY(-180deg);
+    box-shadow: 0 0 15px rgba(0,0,0,0.15);
+  }
 }
 
-@keyframes flip-left-back {
-  0% { transform: rotateY(0deg); opacity: 1; }
-  50% { transform: rotateY(15deg); opacity: 0.7; }
-  100% { transform: rotateY(0deg); opacity: 1; }
-}
-
-@keyframes flip-right {
-  0% { transform: rotateY(0deg); opacity: 1; }
-  50% { transform: rotateY(15deg); opacity: 0.7; }
-  100% { transform: rotateY(0deg); opacity: 1; }
-}
-
-@keyframes flip-right-back {
-  0% { transform: rotateY(0deg); opacity: 1; }
-  50% { transform: rotateY(-15deg); opacity: 0.7; }
-  100% { transform: rotateY(0deg); opacity: 1; }
+/* Flip PREV: left page turns back to the right (like turning a page backward)
+   The page rotates from 0° → 180° around its RIGHT edge (the spine) */
+@keyframes pageFlipPrev {
+  0% {
+    transform: rotateY(0deg);
+    box-shadow: 0 0 20px rgba(0,0,0,0.2);
+  }
+  15% {
+    box-shadow: 10px 0 30px rgba(0,0,0,0.3);
+  }
+  50% {
+    transform: rotateY(90deg);
+    box-shadow: 5px 0 25px rgba(0,0,0,0.4);
+  }
+  85% {
+    box-shadow: -5px 0 20px rgba(0,0,0,0.2);
+  }
+  100% {
+    transform: rotateY(180deg);
+    box-shadow: 0 0 15px rgba(0,0,0,0.15);
+  }
 }
 
 /* Custom scrollbar */
@@ -185,23 +207,17 @@
   background: #555;
 }
 
-/* Maya decorative pattern */
-.maya-border {
-  position: relative;
+/* Custom scroll for book pages */
+.custom-scroll::-webkit-scrollbar {
+  width: 4px;
 }
-
-.maya-border::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: repeating-linear-gradient(
-    90deg,
-    #00A86B 0px,
-    #00A86B 8px,
-    transparent 8px,
-    transparent 12px
-  );
+.custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.15);
+  border-radius: 2px;
+}
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0,0,0,0.25);
 }
