@@ -17,12 +17,25 @@ export default function StageSelection() {
   }, [setStages]);
 
   const handleSelectStage = async (stage: StageData) => {
+    const myStages = stages.filter((s) => s.groupId === group?.id);
+
+    // If group already has a stage, they can only click on their own stage
+    if (myStages.length > 0) {
+      if (stage.groupId === group?.id) {
+        // Open their own stage for editing
+        setSelectedStageId(stage.id);
+        setView('editor');
+      }
+      // Otherwise, ignore the click
+      return;
+    }
+
+    // No stage claimed yet - claim this one
     if (stage.groupId && stage.groupId !== group?.id) {
       return; // Already claimed by another group
     }
 
     if (!stage.groupId) {
-      // Claim the stage
       try {
         const res = await fetch(`/api/stages/${stage.id}/claim`, {
           method: 'PUT',
@@ -54,6 +67,7 @@ export default function StageSelection() {
   const isStageComplete = (stage: StageData) => stage.text && stage.imageUrl && stage.audioData;
 
   const myStages = stages.filter((s) => s.groupId === group?.id);
+  const hasClaimedStage = myStages.length > 0;
   const allComplete = stages.every((s) => s.text && s.imageUrl && s.audioData);
 
   return (
@@ -72,15 +86,6 @@ export default function StageSelection() {
           </div>
 
           <div className="flex gap-3">
-            {allComplete && (
-              <Button
-                onClick={() => setView('book')}
-                className="bg-jade hover:bg-jade-dark text-black font-semibold transition-all duration-200"
-              >
-                <BookOpen className="w-4 h-4 mr-2" />
-                Ver Libro
-              </Button>
-            )}
             <Button
               onClick={() => setView('book')}
               variant="outline"
@@ -100,29 +105,39 @@ export default function StageSelection() {
           </div>
         </div>
 
-        {/* My Stages */}
-        {myStages.length > 0 && (
-          <div className="mb-8 p-4 rounded-xl border border-jade/20 bg-jade/5">
-            <h3 className="text-jade font-medium mb-2">Mi etapa asignada:</h3>
-            <div className="flex flex-wrap gap-2">
-              {myStages.map((stage) => (
-                <button
-                  key={stage.id}
-                  onClick={() => {
-                    setSelectedStageId(stage.id);
-                    setView('editor');
-                  }}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    isStageComplete(stage)
-                      ? 'bg-jade text-black hover:bg-jade-dark'
-                      : 'bg-jade/20 text-jade hover:bg-jade/30'
-                  }`}
-                >
-                  {stage.number}. {stage.title}
-                  {isStageComplete(stage) ? ' ✓' : ' (en progreso)'}
-                </button>
-              ))}
-            </div>
+        {/* My Stage - Prominent */}
+        {hasClaimedStage && (
+          <div className="mb-8 p-5 rounded-xl border border-jade/30 bg-jade/5">
+            <h3 className="text-jade font-medium mb-3">Mi etapa asignada:</h3>
+            {myStages.map((stage) => (
+              <button
+                key={stage.id}
+                onClick={() => {
+                  setSelectedStageId(stage.id);
+                  setView('editor');
+                }}
+                className={`w-full text-left px-5 py-4 rounded-lg font-medium transition-all flex items-center justify-between ${
+                  isStageComplete(stage)
+                    ? 'bg-jade text-black hover:bg-jade-dark'
+                    : 'bg-jade/20 text-jade hover:bg-jade/30 border border-jade/30'
+                }`}
+              >
+                <div>
+                  <span className="font-serif font-bold text-lg">{stage.number}. {stage.title}</span>
+                  <p className={`text-sm mt-1 ${isStageComplete(stage) ? 'text-black/70' : 'text-jade/60'}`}>
+                    {isStageComplete(stage) ? 'Completa — clic para editar' : 'En progreso — clic para continuar editando'}
+                  </p>
+                </div>
+                <BookOpen className={`w-5 h-5 ${isStageComplete(stage) ? 'text-black/50' : 'text-jade/40'}`} />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Info message when group has a stage */}
+        {hasClaimedStage && (
+          <div className="mb-6 px-4 py-3 rounded-lg bg-neutral-900/50 border border-neutral-800 text-neutral-500 text-sm">
+            Las demás etapas están asignadas a otros grupos. Solo puedes editar tu etapa.
           </div>
         )}
 
@@ -132,14 +147,15 @@ export default function StageSelection() {
             const claimedByMe = isStageClaimedByMe(stage);
             const claimedByOther = isStageClaimedByOther(stage);
             const complete = isStageComplete(stage);
+            const isDisabled = claimedByOther || (hasClaimedStage && !claimedByMe);
 
             return (
               <button
                 key={stage.id}
                 onClick={() => handleSelectStage(stage)}
-                disabled={claimedByOther}
+                disabled={isDisabled}
                 className={`relative group p-5 rounded-xl border text-left transition-all duration-300 ${
-                  claimedByOther
+                  isDisabled
                     ? 'border-neutral-800 bg-neutral-950/50 cursor-not-allowed opacity-50'
                     : claimedByMe
                     ? 'border-jade/40 bg-jade/5 hover:border-jade/60 hover:bg-jade/10 cursor-pointer'
@@ -155,7 +171,7 @@ export default function StageSelection() {
 
                 {/* Title */}
                 <h3 className={`font-serif font-bold text-base mb-2 pr-10 ${
-                  claimedByOther ? 'text-neutral-500' : 'text-white'
+                  isDisabled ? 'text-neutral-500' : 'text-white'
                 }`}>
                   {stage.title}
                 </h3>
@@ -179,13 +195,15 @@ export default function StageSelection() {
                     <span className={`flex items-center gap-1 ${complete ? 'text-jade' : 'text-yellow-500'}`}>
                       {complete ? 'Completa' : 'En progreso'}
                     </span>
+                  ) : hasClaimedStage ? (
+                    <span className="text-neutral-600">No disponible</span>
                   ) : (
                     <span className="text-jade/60">Disponible</span>
                   )}
                 </div>
 
                 {/* Hover Effect */}
-                {!claimedByOther && (
+                {!isDisabled && (
                   <div className="absolute inset-0 rounded-xl bg-jade/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                 )}
               </button>
