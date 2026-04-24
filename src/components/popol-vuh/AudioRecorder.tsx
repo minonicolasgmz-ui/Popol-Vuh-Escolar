@@ -12,7 +12,9 @@ interface AudioRecorderProps {
 export default function AudioRecorder({ onAudioRecorded, initialAudio }: AudioRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [audioUrl, setAudioUrl] = useState<string | null>(initialAudio ? `data:audio/webm;base64,${initialAudio}` : null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(
+    initialAudio ? (initialAudio.startsWith('data:') ? initialAudio : `data:audio/webm;base64,${initialAudio}`) : null
+  );
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -22,7 +24,7 @@ export default function AudioRecorder({ onAudioRecorded, initialAudio }: AudioRe
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
@@ -33,15 +35,15 @@ export default function AudioRecorder({ onAudioRecorded, initialAudio }: AudioRe
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
 
         // Convert to base64
         const reader = new FileReader();
         reader.onloadend = () => {
-          const base64 = (reader.result as string).split(',')[1];
-          onAudioRecorded(base64);
+          const dataUrl = reader.result as string;
+          onAudioRecorded(dataUrl);
         };
         reader.readAsDataURL(blob);
 

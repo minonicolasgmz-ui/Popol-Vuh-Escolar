@@ -117,7 +117,8 @@ export default function BookViewer() {
       audioRef.current.pause(); audioRef.current = null; setPlayingAudio(null); return;
     }
     if (audioRef.current) audioRef.current.pause();
-    const audio = new Audio(`data:audio/webm;base64,${audioData}`);
+    const audioUrl = audioData.startsWith('data:') ? audioData : `data:audio/webm;base64,${audioData}`;
+    const audio = new Audio(audioUrl);
     audioRef.current = audio;
     audio.onended = () => { setPlayingAudio(null); audioRef.current = null; };
     audio.play();

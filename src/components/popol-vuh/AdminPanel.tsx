@@ -81,7 +81,8 @@ export default function AdminPanel() {
       audioRef.current.pause();
     }
 
-    const audio = new Audio(`data:audio/webm;base64,${audioDataBase64}`);
+    const audioUrl = audioDataBase64.startsWith('data:') ? audioDataBase64 : `data:audio/webm;base64,${audioDataBase64}`;
+    const audio = new Audio(audioUrl);
     audioRef.current = audio;
     audio.onended = () => {
       setPlayingAudio(null);
