@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(group, { status: 201 });
-  } catch {
-    return NextResponse.json({ error: 'Error al crear grupo' }, { status: 500 });
+  } catch (error: any) {
+    return NextResponse.json({ error: 'Error al crear grupo: ' + error.message }, { status: 500 });
   }
 }
