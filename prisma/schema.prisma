@@ -8,12 +8,11 @@ datasource db {
 }
 
 model Group {
-  id         String   @id @default(cuid())
-  student1   String
-  student2   String
-  createdAt  DateTime @default(now())
-
-  stages     Stage[]
+  id        String   @id @default(cuid())
+  student1  String
+  student2  String
+  createdAt DateTime @default(now())
+  stages    Stage[]
 }
 
 model Stage {
@@ -25,7 +24,7 @@ model Stage {
   imageUrl    String?
   audioData   String?
   groupId     String?
-  group       Group?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  group       Group?   @relation(fields: [groupId], references: [id])
 }
