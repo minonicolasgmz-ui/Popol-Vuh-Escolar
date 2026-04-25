@@ -6,7 +6,7 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-const dbPath = path.join(process.cwd(), 'prisma', 'db', 'custom.db');
+const dbPath = path.join(process.cwd(), 'db', 'custom.db');
 
 export const db =
   globalForPrisma.prisma ??
