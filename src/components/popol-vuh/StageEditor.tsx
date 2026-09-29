@@ -1,278 +1,280 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useAppStore } from '@/lib/store';
-import { ArrowLeft, Save, ImagePlus, X, CheckCircle2, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, ArrowUpRight, BookOpen, Check, CheckCheck, Cloud, Feather, ImagePlus, Loader2, Mic, Save, ShieldCheck, Trash2, WifiOff } from 'lucide-react';
+import { useAppStore, type GroupData, type StageData } from '@/lib/store';
+import { draftKey, readStageDraft, removeStageDraft, sameDraftContent, writeStageDraft, type DraftContent, type StageDraft } from '@/lib/stage-drafts';
+import { prepareEditorImage } from '@/lib/editor-image';
 import AudioRecorder from './AudioRecorder';
+import './editor.css';
+
+function stageContent(stage: StageData): DraftContent {
+  return { text: stage.text || '', imageUrl: stage.imageUrl || null, audioData: stage.audioData || null };
+}
+
+function isStage(value: unknown): value is StageData {
+  return !!value && typeof value === 'object' && 'id' in value && typeof value.id === 'string' && 'updatedAt' in value && typeof value.updatedAt === 'string';
+}
+
+function messageFrom(value: unknown, fallback: string) {
+  return value && typeof value === 'object' && 'error' in value && typeof value.error === 'string' ? value.error : fallback;
+}
 
 export default function StageEditor() {
-  const { stages, selectedStageId, setView, updateStage, group } = useAppStore();
-  const stage = stages.find((s) => s.id === selectedStageId);
+  const selectedStageId = useAppStore((state) => state.selectedStageId);
+  const group = useAppStore((state) => state.group);
+  const setView = useAppStore((state) => state.setView);
+  if (!group || !selectedStageId) return <div className="app-shell editor-loading"><BookOpen size={32} /><h1>Volvamos a su capítulo</h1><p>Ingresen con su equipo para continuar el trabajo.</p><button className="action-primary" onClick={() => setView(group ? 'stages' : 'landing')}>Continuar</button></div>;
+  return <ChapterWorkshop key={`${group.id}:${selectedStageId}`} stageId={selectedStageId} group={group} />;
+}
 
-  const [text, setText] = useState('');
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [audioData, setAudioData] = useState<string>('');
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+function ChapterWorkshop({ stageId, group }: { stageId: string; group: GroupData }) {
+  const setView = useAppStore((state) => state.setView);
+  const updateStage = useAppStore((state) => state.updateStage);
+  const [stage, setStage] = useState<StageData | null>(() => useAppStore.getState().stages.find((item) => item.id === stageId) || null);
+  const [content, setContent] = useState<DraftContent | null>(null);
+  const [savedContent, setSavedContent] = useState<DraftContent | null>(null);
+  const [baseUpdatedAt, setBaseUpdatedAt] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [error, setError] = useState('');
+  const [localError, setLocalError] = useState('');
+  const [localStatus, setLocalStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [recovered, setRecovered] = useState(false);
+  const [retry, setRetry] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [conflict, setConflict] = useState<StageData | null>(null);
+  const [online, setOnline] = useState(true);
+  const [recording, setRecording] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState('');
+  const [confirmImageDelete, setConfirmImageDelete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const readingScriptRef = useRef<HTMLDetailsElement>(null);
+  const requestRef = useRef<XMLHttpRequest | null>(null);
+  const mountedRef = useRef(true);
+  const imageSequenceRef = useRef(0);
+  const key = draftKey(group.id, stageId);
+  const dirty = !!content && (!savedContent || !sameDraftContent(content, savedContent));
 
   useEffect(() => {
-    if (stage) {
-      setText(stage.text || '');
-      setImageUrl(stage.imageUrl || null);
-      setAudioData(stage.audioData || '');
-      if (stage.imageUrl) {
-        setImagePreview(stage.imageUrl);
-      }
-    }
-  }, [stage]);
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; imageSequenceRef.current++; requestRef.current?.abort(); };
+  }, []);
 
-  if (!stage) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center text-neutral-400">
-        <p>Etapa no encontrada</p>
-      </div>
-    );
-  }
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert('Por favor selecciona un archivo de imagen válido.');
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      alert('La imagen es demasiado grande. El límite es 10MB.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = reader.result as string;
-      setImageUrl(base64);
-      setImagePreview(base64);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const removeImage = () => {
-    setImageUrl(null);
-    setImagePreview(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    setSaved(false);
-
-    try {
-      const res = await fetch(`/api/stages/${stage.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: text || null,
-          imageUrl: imageUrl || null,
-          audioData: audioData || null,
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    const load = async () => {
+      setLoadError('');
+      const [remote, local] = await Promise.allSettled([
+        fetch(`/api/stages/${encodeURIComponent(stageId)}`, { signal: controller.signal, cache: 'no-store' }).then(async (response) => {
+          const value: unknown = await response.json();
+          if (!response.ok || !isStage(value)) throw new Error(messageFrom(value, 'No pudimos abrir este capítulo.'));
+          return value;
         }),
-      });
+        readStageDraft(key),
+      ]);
+      if (!active) return;
+      const draft: StageDraft | null = local.status === 'fulfilled' ? local.value : null;
+      if (local.status === 'rejected') {
+        setLocalError('El navegador no pudo abrir los borradores. Pueden editar, pero guarden antes de salir.'); setLocalStatus('error');
+      }
+      if (remote.status === 'fulfilled') {
+        const current = remote.value;
+        if (current.groupId !== group.id) { setLoadError('Este capítulo ya no está asignado a su equipo. Vuelvan a los capítulos para revisar la asignación.'); return; }
+        const saved = stageContent(current);
+        setStage(current); updateStage(current); setSavedContent(saved);
+        if (draft && !sameDraftContent(draft, saved)) {
+          setContent({ text: draft.text, imageUrl: draft.imageUrl, audioData: draft.audioData });
+          setBaseUpdatedAt(draft.baseUpdatedAt); setRecovered(true); setLocalStatus('saved');
+          if (draft.baseUpdatedAt !== current.updatedAt) setConflict(current);
+        } else {
+          setContent(saved); setBaseUpdatedAt(current.updatedAt);
+          if (draft) void removeStageDraft(key).catch(() => undefined);
+        }
+      } else if (draft) {
+        setContent({ text: draft.text, imageUrl: draft.imageUrl, audioData: draft.audioData });
+        setBaseUpdatedAt(draft.baseUpdatedAt); setRecovered(true); setLocalStatus('saved');
+        setError('Recuperamos el borrador de este dispositivo. No pudimos comprobar la versión del libro; vuelvan a guardar cuando haya conexión.');
+      } else {
+        setLoadError(remote.reason instanceof Error ? remote.reason.message : 'No pudimos abrir el capítulo. Revisen la conexión e intenten otra vez.');
+      }
+    };
+    void load();
+    return () => { active = false; controller.abort(); };
+  }, [stageId, group.id, key, retry, updateStage]);
 
-      const updatedStage = await res.json();
-      updateStage(updatedStage);
-      setSaved(true);
+  useEffect(() => {
+    const syncOnline = () => setOnline(navigator.onLine);
+    syncOnline(); window.addEventListener('online', syncOnline); window.addEventListener('offline', syncOnline);
+    return () => { window.removeEventListener('online', syncOnline); window.removeEventListener('offline', syncOnline); };
+  }, []);
 
-      setTimeout(() => setSaved(false), 3000);
-    } catch {
-      alert('Error al guardar. Intenta de nuevo.');
+  useEffect(() => {
+    if (!content || !dirty || !baseUpdatedAt) return;
+    let latest = true;
+    void writeStageDraft({ ...content, key, baseUpdatedAt, savedAt: Date.now() }).then(() => {
+      if (latest) { setLocalStatus('saved'); setLocalError(''); }
+    }).catch(() => {
+      if (latest) { setLocalStatus('error'); setLocalError('No pudimos guardar el borrador en este dispositivo. Puede faltar espacio; guarden en el libro antes de salir.'); }
+    });
+    return () => { latest = false; };
+  }, [content, dirty, baseUpdatedAt, key]);
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (recording || saving || imageBusy || (dirty && localStatus !== 'saved')) { event.preventDefault(); event.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty, localStatus, recording, saving, imageBusy]);
+
+  const changeContent = useCallback((patch: Partial<DraftContent>) => {
+    setContent((previous) => previous ? { ...previous, ...patch } : previous);
+    setLocalStatus('saving');
+    setError('');
+  }, []);
+  const handleAudio = useCallback((value: string) => changeContent({ audioData: value || null }), [changeContent]);
+  const handleRecording = useCallback((value: boolean) => {
+    setRecording(value);
+    if (value && readingScriptRef.current) readingScriptRef.current.open = true;
+  }, []);
+
+  const handleImage = async (file?: File) => {
+    if (!file) return;
+    const sequence = ++imageSequenceRef.current;
+    setImageBusy(true); setImageError('');
+    try {
+      const imageUrl = await prepareEditorImage(file);
+      if (mountedRef.current && sequence === imageSequenceRef.current) changeContent({ imageUrl });
+    } catch (cause) {
+      if (mountedRef.current && sequence === imageSequenceRef.current) setImageError(cause instanceof Error ? cause.message : 'No se pudo abrir la imagen.');
     } finally {
-      setSaving(false);
+      if (mountedRef.current && sequence === imageSequenceRef.current) setImageBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  const isComplete = text.trim() && imageUrl && audioData;
+  const save = async () => {
+    if (!content || saving || recording || imageBusy || conflict) return false;
+    setSaving(true); setError(''); setUploadProgress(0);
+    try {
+      const result = await new Promise<{ status: number; data: unknown }>((resolve, reject) => {
+        const request = new XMLHttpRequest(); requestRef.current = request;
+        request.open('PUT', `/api/stages/${encodeURIComponent(stageId)}`);
+        request.setRequestHeader('Content-Type', 'application/json'); request.timeout = 90000;
+        request.upload.onprogress = (event) => { if (event.lengthComputable && mountedRef.current) setUploadProgress(Math.round(event.loaded / event.total * 100)); };
+        request.onload = () => { try { resolve({ status: request.status, data: JSON.parse(request.responseText) }); } catch { reject(new Error('El servidor devolvió una respuesta inesperada. Conservamos el borrador.')); } };
+        request.onerror = () => reject(new Error('No pudimos conectar. El borrador permanece en este dispositivo si el guardado local está disponible.'));
+        request.ontimeout = () => reject(new Error('El guardado demoró demasiado. Revisen la conexión e intenten otra vez.'));
+        request.onabort = () => reject(new Error('El envío se interrumpió.'));
+        request.send(JSON.stringify({ text: content.text.trim() ? content.text : null, imageUrl: content.imageUrl, audioData: content.audioData, expectedUpdatedAt: baseUpdatedAt }));
+      });
+      if (result.status === 409) {
+        const response = await fetch(`/api/stages/${encodeURIComponent(stageId)}`, { cache: 'no-store' });
+        const latest: unknown = await response.json();
+        if (response.ok && isStage(latest)) setConflict(latest);
+        throw new Error('Hay una versión más reciente de este capítulo. Revisen el cambio antes de volver a guardar.');
+      }
+      if (result.status < 200 || result.status >= 300 || !isStage(result.data)) throw new Error(messageFrom(result.data, 'No se pudo guardar. El borrador se conserva para volver a intentar.'));
+      if (!mountedRef.current) return false;
+      const updated = result.data;
+      const nextContent = stageContent(updated);
+      setStage(updated); updateStage(updated); setContent(nextContent); setSavedContent(nextContent); setBaseUpdatedAt(updated.updatedAt);
+      setRecovered(false); setLocalStatus('idle');
+      await removeStageDraft(key).catch(() => { if (mountedRef.current) setLocalError('El capítulo está guardado; no pudimos limpiar la copia local anterior.'); });
+      return true;
+    } catch (cause) {
+      if (mountedRef.current) setError(cause instanceof Error ? cause.message : 'No se pudo guardar el capítulo.');
+      return false;
+    } finally { if (mountedRef.current) setSaving(false); requestRef.current = null; }
+  };
 
-  return (
-    <div className="min-h-screen bg-black text-white p-4 md:p-8">
-      <div className="max-w-3xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <Button
-            onClick={() => setView('stages')}
-            variant="ghost"
-            className="text-neutral-400 hover:text-white"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Volver a etapas
-          </Button>
+  const openBook = async () => {
+    if (dirty && !(await save())) return;
+    setView('book');
+  };
+  const goBack = async () => {
+    if (recording || saving || imageBusy) return;
+    if (dirty && content) {
+      try { await writeStageDraft({ ...content, key, baseUpdatedAt, savedAt: Date.now() }); }
+      catch { setLocalError('El borrador no pudo guardarse. Guarden en el libro antes de salir para conservar el trabajo.'); return; }
+    }
+    setView('stages');
+  };
 
-          <div className="flex items-center gap-3">
-            {saved && (
-              <span className="text-jade text-sm flex items-center gap-1">
-                <CheckCircle2 className="w-4 h-4" />
-                Guardado
-              </span>
-            )}
-            <Button
-              onClick={handleSave}
-              disabled={saving}
-              className="bg-jade hover:bg-jade-dark text-black font-semibold transition-all"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Guardando...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  Guardar
-                </>
-              )}
-            </Button>
-          </div>
+  if (!content) return <main className="app-shell editor-loading">
+    {loadError ? <><BookOpen size={32} /><h1>No pudimos abrir el capítulo</h1><p role="alert">{loadError}</p><div className="editor-loading-actions"><button type="button" className="action-primary" onClick={() => setRetry((value) => value + 1)}>Volver a intentar</button><button type="button" className="action-secondary" onClick={() => setView('stages')}>Ver capítulos</button></div></>
+      : <><Loader2 size={30} className="editor-spin" /><p role="status">Preparando su espacio para crear…</p></>}
+  </main>;
+
+  const completed = [!!content.text.trim(), !!content.imageUrl, !!content.audioData];
+  const completeCount = completed.filter(Boolean).length;
+  const words = content.text.trim() ? content.text.trim().split(/\s+/).length : 0;
+  const disabled = saving || imageBusy;
+  const title = stage?.title || 'Nuestro capítulo';
+  const saveLabel = saving ? uploadProgress < 100 ? `Enviando ${uploadProgress}%` : 'Confirmando…' : dirty ? 'Guardar capítulo' : 'Guardado en el libro';
+  const statusLabel = saving ? 'Guardando en el libro…' : dirty ? localStatus === 'error' ? 'Borrador local no disponible' : localStatus === 'saved' ? online ? 'Borrador en este dispositivo' : 'Sin conexión · borrador local' : localStatus === 'saving' ? 'Protegiendo el borrador…' : 'Cambios sin guardar' : 'El libro tiene la última versión';
+
+  return <main className="app-shell chapter-workshop">
+    <div className="editor-container">
+      <header className="editor-header">
+        <button type="button" className="editor-back" onClick={goBack} disabled={recording || disabled}><ArrowLeft size={18} /><span>Capítulos</span></button>
+        <span className="editor-brand">Popol Vuh <span>/ taller de la clase</span></span>
+        <span className="editor-header-seal" aria-hidden="true"><Feather size={18} /></span>
+      </header>
+      <div className="editor-intro">
+        <div><p className="eyebrow">El libro también lo escriben ustedes</p><h1>Una historia.<br /><em>Su propia voz.</em></h1></div>
+        <div className="editor-team"><span className="editor-team-mark" aria-hidden="true">{group.student1.charAt(0)}{group.student2.charAt(0)}</span><div><span>Equipo de autores</span><strong>{group.student1} <span>&</span> {group.student2}</strong></div></div>
+      </div>
+
+      <nav className="editor-step-nav" aria-label="Secciones del capítulo">
+        {[{ id: 'escribir', label: 'Escribir', Icon: Feather }, { id: 'ilustrar', label: 'Ilustrar', Icon: ImagePlus }, { id: 'narrar', label: 'Narrar', Icon: Mic }].map(({ id, label, Icon }, index) => <a key={id} href={`#${id}`}><span className={`editor-step-circle ${completed[index] ? 'is-complete' : ''}`}>{completed[index] ? <Check size={17} /> : <Icon size={17} />}</span><span>{label}</span><small>0{index + 1}</small></a>)}
+      </nav>
+
+      {recovered && <div className="editor-recovered"><ShieldCheck size={18} /><span>Recuperamos su borrador. Al guardar, los cambios aparecerán en el libro de la clase.</span></div>}
+      {localError && <p role="alert" className="error-notice">{localError}</p>}
+      {error && <p role="alert" className="error-notice">{error}</p>}
+      {conflict && <section className="editor-conflict" aria-labelledby="conflict-title"><h2 id="conflict-title">Hay otra versión guardada</h2><p>El capítulo cambió desde que comenzaron este borrador. Su trabajo sigue aquí.</p><details><summary>Leer el texto guardado en el libro</summary><p>{conflict.text || 'Esta versión no tiene texto.'}</p></details><div><button type="button" className="action-secondary" onClick={() => { const next = stageContent(conflict); setContent(next); setSavedContent(next); setBaseUpdatedAt(conflict.updatedAt); setStage(conflict); updateStage(conflict); setConflict(null); setError(''); setRecovered(false); void removeStageDraft(key).catch(() => undefined); }}>Usar la versión del libro</button><button type="button" className="action-primary" onClick={() => { setSavedContent(stageContent(conflict)); setBaseUpdatedAt(conflict.updatedAt); setConflict(null); setError('Revisen su borrador y toquen Guardar para reemplazar la versión del libro.'); }}>Conservar nuestro borrador</button></div></section>}
+
+      <div className="editor-grid">
+        <div className="editor-sections">
+          <section id="escribir" className="paper-card editor-section">
+            <div className="editor-section-heading"><span className="editor-section-number">01</span><div><p className="eyebrow">Escribir</p><h2>Las palabras de su historia</h2></div><Feather size={23} aria-hidden="true" /></div>
+            <div className="editor-brief"><span>Capítulo {String(stage?.number || 1).padStart(2, '0')}</span><h3>{title}</h3>{stage?.description && <p>{stage.description}</p>}</div>
+            <label htmlFor="chapter-summary" className="editor-field-label">¿Qué sucede en este capítulo?</label>
+            <p id="summary-help" className="editor-hint">Cuenten los hechos principales con sus palabras. Este será el texto que lean en voz alta.</p>
+            <textarea id="chapter-summary" className="editor-manuscript" value={content.text} onChange={(event) => changeContent({ text: event.target.value })} disabled={saving} aria-describedby="summary-help" placeholder="Todo comienza cuando…" />
+            <div className="editor-writing-footer"><span><Feather size={13} /> Cada palabra cuenta</span><span>{words} {words === 1 ? 'palabra' : 'palabras'}</span></div>
+          </section>
+
+          <section id="ilustrar" className="paper-card editor-section">
+            <div className="editor-section-heading"><span className="editor-section-number">02</span><div><p className="eyebrow">Ilustrar</p><h2>Una imagen para imaginar</h2></div><ImagePlus size={23} aria-hidden="true" /></div>
+            <p className="editor-section-description">Un dibujo, una foto o una ilustración que represente el capítulo.</p>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={(event) => void handleImage(event.target.files?.[0])} className="editor-file-input" aria-label="Elegir imagen del capítulo" disabled={disabled} />
+            {content.imageUrl ? <div className="editor-artwork"><img src={content.imageUrl} alt={`Ilustración del capítulo ${title}`} /><div className="editor-artwork-caption"><span><Check size={15} /> Su ilustración está lista</span><span>Se conserva la imagen completa</span></div></div>
+              : <button type="button" className="editor-image-drop" onClick={() => fileInputRef.current?.click()} disabled={disabled}><span className="editor-image-drop-icon"><ImagePlus size={30} /></span><strong>Denle forma a su historia</strong><span>Elegir una imagen de la galería</span><small>JPG, PNG o WebP · hasta 15 MB</small></button>}
+            {imageBusy && <p role="status" className="editor-preparing"><Loader2 size={17} className="editor-spin" /> Preparando una imagen ligera para el libro…</p>}
+            {content.imageUrl && <div className="editor-media-actions"><button type="button" className="action-secondary" onClick={() => fileInputRef.current?.click()} disabled={disabled}><ImagePlus size={17} /> Cambiar imagen</button><button type="button" className="editor-text-button" onClick={() => setConfirmImageDelete(!confirmImageDelete)} disabled={disabled}><Trash2 size={16} /> Quitar</button></div>}
+            {confirmImageDelete && <div className="editor-inline-confirm"><span>¿Quitar la imagen del borrador?</span><button type="button" onClick={() => { changeContent({ imageUrl: null }); setConfirmImageDelete(false); }}>Sí, quitar</button><button type="button" onClick={() => setConfirmImageDelete(false)}>Conservar</button></div>}
+            {imageError && <p role="alert" className="error-notice">{imageError}</p>}
+          </section>
+
+          <section id="narrar" className="paper-card editor-section">
+            <div className="editor-section-heading"><span className="editor-section-number">03</span><div><p className="eyebrow">Narrar</p><h2>El relato cobra vida</h2></div><Mic size={23} aria-hidden="true" /></div>
+            <p className="editor-section-description">Pueden turnarse para leer. Su voz acompañará este capítulo en el libro de todos.</p>
+            {content.text.trim() && <details ref={readingScriptRef} className="editor-reading-script"><summary><BookOpen size={17} /> Ver nuestro texto para leer</summary><div>{content.text}</div></details>}
+            <AudioRecorder initialAudio={content.audioData} onAudioRecorded={handleAudio} onRecordingChange={handleRecording} disabled={disabled} />
+          </section>
         </div>
 
-        {/* Stage Title */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="w-10 h-10 rounded-full bg-jade text-black flex items-center justify-center font-bold text-sm">
-              {stage.number}
-            </span>
-            <div>
-              <h1 className="text-2xl md:text-3xl font-serif font-bold text-white">
-                {stage.title}
-              </h1>
-              <p className="text-neutral-500 text-sm">{stage.description}</p>
-            </div>
-          </div>
-          {group && (
-            <p className="text-jade/60 text-sm ml-13">
-              Grupo: {group.student1} y {group.student2}
-            </p>
-          )}
-        </div>
-
-        {/* Content Sections */}
-        <div className="space-y-8">
-          {/* Text Section */}
-          <div className="space-y-3">
-            <label className="text-neutral-300 font-medium text-sm flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-jade/20 text-jade text-xs flex items-center justify-center font-bold">1</span>
-              Escribe lo que sucedió en esta etapa
-            </label>
-            <Textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Describe los eventos principales de esta etapa del Popol Vuh..."
-              className="min-h-[200px] bg-neutral-950 border-neutral-800 text-white placeholder:text-neutral-600 focus:border-jade focus:ring-jade/20 text-base leading-relaxed resize-y"
-            />
-            <p className="text-neutral-600 text-xs">
-              {text.length} caracteres
-            </p>
-          </div>
-
-          {/* Image Section */}
-          <div className="space-y-3">
-            <label className="text-neutral-300 font-medium text-sm flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-jade/20 text-jade text-xs flex items-center justify-center font-bold">2</span>
-              Sube una imagen representativa
-            </label>
-
-            {imagePreview ? (
-              <div className="relative group rounded-xl overflow-hidden border border-neutral-800">
-                <img
-                  src={imagePreview}
-                  alt="Imagen representativa"
-                  className="w-full max-h-80 object-contain bg-neutral-900"
-                />
-                <button
-                  onClick={removeImage}
-                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/70 text-red-400 hover:bg-red-600 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full h-48 border-2 border-dashed border-neutral-800 rounded-xl flex flex-col items-center justify-center text-neutral-500 hover:border-jade/40 hover:text-jade/60 transition-all group"
-              >
-                <ImagePlus className="w-10 h-10 mb-2 group-hover:scale-110 transition-transform" />
-                <span className="text-sm">Haz clic para subir una imagen</span>
-                <span className="text-xs text-neutral-700 mt-1">JPG, PNG, GIF (máx. 10MB)</span>
-              </button>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleImageUpload}
-              className="hidden"
-            />
-            {imagePreview && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-                className="border-neutral-800 text-neutral-400 hover:text-white hover:border-jade/50"
-              >
-                <ImagePlus className="w-4 h-4 mr-2" />
-                Cambiar imagen
-              </Button>
-            )}
-          </div>
-
-          {/* Audio Section */}
-          <div className="space-y-3">
-            <label className="text-neutral-300 font-medium text-sm flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-jade/20 text-jade text-xs flex items-center justify-center font-bold">3</span>
-              Graba la lectura de esta etapa
-            </label>
-            <div className="p-4 bg-neutral-950 border border-neutral-800 rounded-xl">
-              <AudioRecorder
-                onAudioRecorded={(base64) => setAudioData(base64)}
-                initialAudio={audioData || null}
-              />
-            </div>
-          </div>
-
-          {/* Completion Status */}
-          <div className={`p-4 rounded-xl border ${
-            isComplete
-              ? 'border-jade/30 bg-jade/5'
-              : 'border-yellow-500/20 bg-yellow-500/5'
-          }`}>
-            <div className="flex items-center gap-3">
-              {isComplete ? (
-                <>
-                  <CheckCircle2 className="w-5 h-5 text-jade" />
-                  <div>
-                    <p className="text-jade font-medium text-sm">Etapa completa</p>
-                    <p className="text-jade/60 text-xs">Puedes guardar tu progreso</p>
-                  </div>
-                </>
-              ) : (
-                <div>
-                  <p className="text-yellow-500 font-medium text-sm">Falta completar:</p>
-                  <ul className="text-yellow-500/60 text-xs mt-1 space-y-1">
-                    {!text.trim() && <li>- Escribe el texto descriptivo</li>}
-                    {!imageUrl && <li>- Sube una imagen representativa</li>}
-                    {!audioData && <li>- Graba la lectura en audio</li>}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <aside className="editor-sidebar" aria-label="Vista previa y avance">
+          <div className="editor-preview-card"><div className="editor-preview-label"><BookOpen size={16} /><span>Así empieza su capítulo</span></div><div className="editor-preview-page"><span className="editor-preview-number">{String(stage?.number || 1).padStart(2, '0')}</span><span className="editor-preview-rule" /><h2>{title}</h2><p className="editor-preview-authors">Por {group.student1} y {group.student2}</p>{content.imageUrl ? <img src={content.imageUrl} alt="" /> : <div className="editor-preview-placeholder"><Feather size={30} /><span>Una página para<br />su imaginación</span></div>}<p className={`editor-preview-text ${!content.text.trim() ? 'is-empty' : ''}`}>{content.text.trim() || 'Aquí aparecerá el relato que están creando. Este es su lugar en nuestra historia.'}</p><span className="editor-preview-folio">Popol Vuh · Libro de la clase</span></div><p className="editor-preview-note">Vista previa. El libro adapta las páginas al texto y al tamaño de pantalla.</p></div>
+          <div className="editor-progress-card"><div><strong>{completeCount} de 3 aportes listos</strong><span>{completeCount === 3 ? 'Un capítulo para compartir' : 'La historia se construye paso a paso'}</span></div><div className="editor-progress-track" aria-hidden="true">{completed.map((done, index) => <i className={done ? 'is-done' : ''} key={index} />)}</div><ul>{['Resumen escrito', 'Imagen elegida', 'Lectura grabada'].map((label, index) => <li key={label} className={completed[index] ? 'is-done' : ''}>{completed[index] ? <CheckCheck size={17} /> : <span className="editor-empty-check" />} {label}</li>)}</ul><button type="button" className="editor-book-link" onClick={openBook} disabled={disabled || recording || !!conflict}><BookOpen size={18} /> {dirty ? 'Guardar y ver en el libro' : 'Ver el libro de la clase'}<ArrowUpRight size={18} /></button><p>Pueden guardar aunque falte un aporte.</p></div>
+        </aside>
       </div>
     </div>
-  );
+    <footer className="editor-savebar"><div className="editor-savebar-inner"><div className="editor-save-state" role="status" aria-live="polite">{saving ? <Loader2 size={19} className="editor-spin" /> : !online ? <WifiOff size={19} /> : dirty ? <ShieldCheck size={19} /> : <Cloud size={19} />}<div><strong>{statusLabel}</strong><span>{recording ? 'Terminen de grabar antes de salir o guardar.' : dirty ? 'Guarden para compartir los cambios con la clase.' : 'Pueden seguir creando cuando quieran.'}</span></div></div><button type="button" className="action-primary editor-save-button" onClick={save} disabled={disabled || recording || !!conflict || !dirty}>{saving ? <Loader2 size={18} className="editor-spin" /> : dirty ? <Save size={18} /> : <Check size={18} />}<span>{saveLabel}</span></button></div></footer>
+  </main>;
 }

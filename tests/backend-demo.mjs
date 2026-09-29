@@ -1,0 +1,92 @@
+import assert from 'node:assert/strict';
+
+// Integration checks deliberately refuse to run against anything except the isolated local demo.
+const base = process.env.BACKEND_TEST_URL || 'http://127.0.0.1:3000';
+if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostname)) throw new Error('Use a local demo server.');
+const password = process.env.ADMIN_PASSWORD;
+if (!password) throw new Error('Set ADMIN_PASSWORD to the password of the local demo server.');
+
+async function call(path, { method = 'GET', cookie, body, headers = {} } = {}) {
+  const response = await fetch(`${base}${path}`, { method, headers: { ...(cookie ? { Cookie: cookie } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+  const contentType = response.headers.get('content-type') || '';
+  const data = contentType.includes('application/json') ? await response.json() : new Uint8Array(await response.arrayBuffer());
+  return { response, data, cookie: response.headers.get('set-cookie')?.split(';')[0] };
+}
+const session = await call('/api/session');
+assert.equal(session.data.demo, true, 'Refusing to mutate a server with real data.');
+assert.equal(session.data.group, null);
+assert.equal((await call('/api/stages')).response.status, 401);
+assert.equal((await call('/api/groups')).response.status, 401);
+assert.equal((await call('/api/admin/stages')).response.status, 401);
+assert.equal((await call('/api/groups', { method: 'POST', body: { student1: 'A', student2: 'B' }, headers: { Origin: 'https://foreign.example' } })).response.status, 403);
+assert.equal((await call('/api/groups', { method: 'POST', body: { student1: ' ', student2: 'B' } })).response.status, 400);
+assert.equal((await call('/api/admin/session', { method: 'POST', body: { password: 'incorrect' } })).response.status, 401);
+
+const admin = await call('/api/admin/session', { method: 'POST', body: { password } });
+assert.equal(admin.response.status, 200);
+assert.match(admin.response.headers.get('set-cookie'), /HttpOnly/i);
+assert.match(admin.response.headers.get('set-cookie'), /SameSite=strict/i);
+const a = await call('/api/groups', { method: 'POST', body: { student1: 'Prueba A', student2: 'Prueba B' }, headers: { Origin: new URL(base).origin, 'Sec-Fetch-Site': 'same-origin' } });
+const b = await call('/api/groups', { method: 'POST', body: { student1: 'Prueba C', student2: 'Prueba D' } });
+assert.equal(a.response.status, 201);
+assert.equal((await call('/api/session', { cookie: a.cookie })).data.group.id, a.data.id);
+assert.equal((await call('/api/stages', { cookie: `${a.cookie.slice(0, -4)}aaaa` })).response.status, 401);
+assert.equal((await call('/api/admin/stages', { cookie: a.cookie })).response.status, 403);
+
+const listing = await call('/api/stages', { cookie: a.cookie });
+assert.equal(listing.response.status, 200);
+assert.ok(listing.data.every(s => s.text === null && typeof s.hasText === 'boolean'));
+assert.ok(!JSON.stringify(listing.data).includes('base64,'));
+const available = listing.data.filter(s => !s.groupId);
+assert.ok(available.length >= 3, 'Restart the demo server for at least three available chapters.');
+const book = await call('/api/stages?mode=book', { cookie: a.cookie });
+assert.ok(book.data.some(s => s.text));
+assert.ok(!JSON.stringify(book.data).includes('base64,'));
+const illustrated = book.data.find(s => s.imageUrl);
+const illustratedDetail = await call(`/api/stages/${illustrated.id}`, { cookie: a.cookie });
+assert.equal(illustratedDetail.data.text, illustrated.text);
+assert.equal((await call(illustrated.imageUrl)).response.status, 401);
+const image = await call(illustrated.imageUrl, { cookie: a.cookie });
+assert.equal(image.response.status, 200);
+assert.match(image.response.headers.get('content-type'), /^image\//);
+assert.equal((await call(illustrated.imageUrl, { cookie: a.cookie, headers: { 'If-None-Match': image.response.headers.get('etag') } })).response.status, 304);
+
+const id = available[0].id;
+const claims = await Promise.all([call(`/api/stages/${id}/claim`, { method: 'PUT', cookie: a.cookie }), call(`/api/stages/${id}/claim`, { method: 'PUT', cookie: b.cookie })]);
+assert.deepEqual(claims.map(c => c.response.status).sort(), [200, 409]);
+const winner = claims[0].response.status === 200 ? a : b;
+const loser = winner === a ? b : a;
+let ownStage = claims.find(c => c.response.status === 200).data;
+assert.equal(ownStage.groupId, winner.data.id);
+assert.equal((await call(`/api/stages/${available[1].id}/claim`, { method: 'PUT', cookie: winner.cookie })).response.status, 409);
+const second = await call(`/api/stages/${available[1].id}/claim`, { method: 'PUT', cookie: loser.cookie, body: { groupId: winner.data.id } });
+assert.equal(second.response.status, 200);
+assert.equal(second.data.groupId, loser.data.id, 'The server must ignore supplied ownership.');
+assert.equal((await call(`/api/stages/${id}`, { method: 'PUT', cookie: loser.cookie, body: { expectedUpdatedAt: ownStage.updatedAt, text: 'Ataque' } })).response.status, 403);
+assert.equal((await call(`/api/stages/${id}`, { method: 'PUT', cookie: winner.cookie, body: { text: 'Sin versión' } })).response.status, 400);
+assert.equal((await call(`/api/stages/${id}`, { method: 'PUT', cookie: winner.cookie, body: { expectedUpdatedAt: ownStage.updatedAt, imageUrl: 'data:image/svg+xml;base64,PHN2Zy8+' } })).response.status, 415);
+
+const initialVersion = ownStage.updatedAt;
+const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
+const sample = book.data.find(s => s.audioData);
+const audio = await call(sample.audioData, { cookie: winner.cookie });
+const saved = await call(`/api/stages/${id}`, { method: 'PUT', cookie: winner.cookie, body: { expectedUpdatedAt: ownStage.updatedAt, text: 'Texto guardado de prueba. Áéíóú.', imageUrl: png, audioData: `data:audio/wav;base64,${Buffer.from(audio.data).toString('base64')}` } });
+assert.equal(saved.response.status, 200);
+ownStage = saved.data;
+assert.ok(ownStage.hasText && ownStage.hasImage && ownStage.hasAudio);
+assert.equal((await call(`/api/stages/${id}`, { method: 'PUT', cookie: winner.cookie, body: { expectedUpdatedAt: initialVersion, text: 'Versión antigua' } })).response.status, 409);
+const retained = await call(`/api/stages/${id}`, { method: 'PUT', cookie: winner.cookie, body: { expectedUpdatedAt: ownStage.updatedAt, imageUrl: ownStage.imageUrl, audioData: ownStage.audioData } });
+assert.equal(retained.response.status, 200);
+ownStage = retained.data;
+const range = await call(ownStage.audioData, { cookie: winner.cookie, headers: { Range: 'bytes=0-43' } });
+assert.equal(range.response.status, 206); assert.equal(range.data.length, 44);
+assert.match(range.response.headers.get('content-range'), /^bytes 0-43\//);
+assert.equal((await call(ownStage.audioData, { cookie: winner.cookie, headers: { Range: 'bytes=999999999-' } })).response.status, 416);
+assert.equal((await call(ownStage.audioData, { cookie: winner.cookie, headers: { Range: 'bytes=0-3,5-8' } })).response.status, 416);
+
+const reset = await call(`/api/admin/stages/${id}`, { method: 'DELETE', cookie: admin.cookie, body: { expectedUpdatedAt: ownStage.updatedAt } });
+assert.equal(reset.response.status, 200); assert.equal(reset.data.groupId, null); assert.equal(reset.data.hasAudio, false);
+assert.equal((await call(`/api/admin/stages/${available[1].id}`, { method: 'DELETE', cookie: admin.cookie, body: { expectedUpdatedAt: second.data.updatedAt } })).response.status, 200);
+const logout = await call('/api/session', { method: 'DELETE', cookie: winner.cookie });
+assert.equal(logout.response.status, 200); assert.match(logout.response.headers.get('set-cookie'), /Max-Age=0/);
+console.log('PASS: isolated backend demo — sessions, access control, CSRF, lightweight responses, atomic claims, ownership, versions, uploads, retained URLs, media cache/ranges and reset.');

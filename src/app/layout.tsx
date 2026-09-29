@@ -1,16 +1,23 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import localFont from "next/font/local";
 import "./globals.css";
+import "@/components/popol-vuh/book/book.css";
 import { Toaster } from "@/components/ui/toaster";
 
-const geistSans = Geist({
+const geistSans = localFont({
+  src: './fonts/geist-latin.woff2',
+  weight: '100 900',
   variable: "--font-geist-sans",
-  subsets: ["latin"],
+  display: 'swap',
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const editorial = localFont({
+  src: [
+    { path: './fonts/source-serif-4-latin.woff2', weight: '200 900', style: 'normal' },
+    { path: './fonts/source-serif-4-latin-italic.woff2', weight: '200 900', style: 'italic' },
+  ],
+  variable: "--font-editorial",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -28,9 +35,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className="dark" suppressHydrationWarning>
+    <html lang="es" data-scroll-behavior="smooth">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-black text-white min-h-screen`}
+        className={`${geistSans.variable} ${editorial.variable} antialiased`}
       >
         {children}
         <Toaster />
@@ -38,3 +45,5 @@ export default function RootLayout({
     </html>
   );
 }
+
+export const viewport: Viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover', themeColor: '#102B26' };

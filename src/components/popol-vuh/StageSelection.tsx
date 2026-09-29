@@ -1,216 +1,64 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useAppStore, StageData } from '@/lib/store';
-import { BookOpen, Lock, User, LogOut, Eye } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { useCallback, useEffect, useState } from 'react';
+import { ArrowRight, BookOpen, Check, Image as ImageIcon, Loader2, LockKeyhole, LogOut, Mic, PenLine, RefreshCw } from 'lucide-react';
+import { StageData, useAppStore } from '@/lib/store';
+import { Brand, EditorialMark } from './EditorialMark';
+
+export function StageProgress({ stage }: { stage: StageData }) {
+  const items = [{ label: 'Texto', done: stage.hasText ?? !!stage.text?.trim(), Icon: PenLine }, { label: 'Imagen', done: stage.hasImage ?? !!stage.imageUrl, Icon: ImageIcon }, { label: 'Voz', done: stage.hasAudio ?? !!stage.audioData, Icon: Mic }];
+  return <div className="stage-progress">{items.map(({ label, done, Icon }) => <span key={label} className={done ? 'is-done' : ''}><Icon size={14} />{label}{done && <Check size={12} />}<span className="sr-only">{done ? ' listo' : ' pendiente'}</span></span>)}</div>;
+}
 
 export default function StageSelection() {
-  const { stages, group, setView, setSelectedStageId, setStages } = useAppStore();
-
-  // Refresh stages on mount to get latest data
-  useEffect(() => {
-    fetch('/api/stages')
-      .then((res) => res.json())
-      .then((data) => setStages(data))
-      .catch(() => {});
+  const { stages, group, setStages, setView, setSelectedStageId } = useAppStore();
+  const [loading, setLoading] = useState(stages.length === 0);
+  const [error, setError] = useState('');
+  const [claiming, setClaiming] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const response = await fetch('/api/stages', { signal, cache: 'no-store' });
+      const result = await response.json();
+      if (!response.ok || !Array.isArray(result)) throw new Error(result.error || 'No pudimos cargar los capítulos.');
+      setStages(result); setError('');
+    } catch (error) { if (!signal?.aborted) setError(error instanceof Error ? error.message : 'Revisá la conexión e intentá de nuevo.'); }
+    finally { if (!signal?.aborted) setLoading(false); }
   }, [setStages]);
+  useEffect(() => { const controller = new AbortController(); void Promise.resolve().then(() => { if (!controller.signal.aborted) return refresh(controller.signal); }); return () => controller.abort(); }, [refresh]);
+  const ours = stages.find((stage) => stage.groupId === group?.id);
+  const contributions = stages.filter((s) => s.hasText || s.hasImage || s.hasAudio || s.text || s.imageUrl || s.audioData).length;
 
-  const handleSelectStage = async (stage: StageData) => {
-    const myStages = stages.filter((s) => s.groupId === group?.id);
-
-    // If group already has a stage, they can only click on their own stage
-    if (myStages.length > 0) {
-      if (stage.groupId === group?.id) {
-        // Open their own stage for editing
-        setSelectedStageId(stage.id);
-        setView('editor');
-      }
-      // Otherwise, ignore the click
-      return;
-    }
-
-    // No stage claimed yet - claim this one
-    if (stage.groupId && stage.groupId !== group?.id) {
-      return; // Already claimed by another group
-    }
-
-    if (!stage.groupId) {
-      try {
-        const res = await fetch(`/api/stages/${stage.id}/claim`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ groupId: group?.id }),
-        });
-
-        if (res.status === 409) {
-          // Stage was just claimed by someone else, refresh
-          const stagesRes = await fetch('/api/stages');
-          const stagesData = await stagesRes.json();
-          useAppStore.getState().setStages(stagesData);
-          return;
-        }
-
-        const updatedStage = await res.json();
-        useAppStore.getState().updateStage(updatedStage);
-      } catch {
-        return;
-      }
-    }
-
-    setSelectedStageId(stage.id);
-    setView('editor');
+  const choose = async (stage: StageData) => {
+    if (claiming) return;
+    if (stage.groupId === group?.id) { setSelectedStageId(stage.id); setView('editor'); return; }
+    if (ours || stage.groupId) return;
+    setClaiming(stage.id); setError('');
+    try {
+      const response = await fetch(`/api/stages/${stage.id}/claim`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId: group?.id }) });
+      const result = await response.json();
+      if (!response.ok || !result.id) { if (response.status === 409) await refresh(); throw new Error(result.error || 'No pudimos reservar este capítulo.'); }
+      useAppStore.getState().updateStage(result); setSelectedStageId(stage.id); setView('editor');
+    } catch (error) { setError(error instanceof Error ? error.message : 'No pudimos conectar. Intentá de nuevo.'); }
+    finally { setClaiming(null); }
   };
 
-  const isStageClaimedByMe = (stage: StageData) => stage.groupId === group?.id;
-  const isStageClaimedByOther = (stage: StageData) => stage.groupId !== null && stage.groupId !== group?.id;
-  const isStageComplete = (stage: StageData) => stage.text && stage.imageUrl && stage.audioData;
-
-  const myStages = stages.filter((s) => s.groupId === group?.id);
-  const hasClaimedStage = myStages.length > 0;
-  const allComplete = stages.every((s) => s.text && s.imageUrl && s.audioData);
-
-  return (
-    <div className="min-h-screen bg-black text-white p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-serif font-bold">
-              <span className="text-jade">Popol Vuh</span>
-            </h1>
-            <p className="text-neutral-400 mt-1">
-              Bienvenidos, <span className="text-jade">{group?.student1}</span> y{' '}
-              <span className="text-jade">{group?.student2}</span>
-            </p>
-          </div>
-
-          <div className="flex gap-3">
-            <Button
-              onClick={() => setView('book')}
-              variant="outline"
-              className="border-neutral-800 text-neutral-400 hover:text-white hover:border-jade/50"
-            >
-              <Eye className="w-4 h-4 mr-2" />
-              Libro
-            </Button>
-            <Button
-              onClick={() => useAppStore.getState().reset()}
-              variant="ghost"
-              className="text-neutral-500 hover:text-red-400"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Salir
-            </Button>
-          </div>
-        </div>
-
-        {/* My Stage - Prominent */}
-        {hasClaimedStage && (
-          <div className="mb-8 p-5 rounded-xl border border-jade/30 bg-jade/5">
-            <h3 className="text-jade font-medium mb-3">Mi etapa asignada:</h3>
-            {myStages.map((stage) => (
-              <button
-                key={stage.id}
-                onClick={() => {
-                  setSelectedStageId(stage.id);
-                  setView('editor');
-                }}
-                className={`w-full text-left px-5 py-4 rounded-lg font-medium transition-all flex items-center justify-between ${
-                  isStageComplete(stage)
-                    ? 'bg-jade text-black hover:bg-jade-dark'
-                    : 'bg-jade/20 text-jade hover:bg-jade/30 border border-jade/30'
-                }`}
-              >
-                <div>
-                  <span className="font-serif font-bold text-lg">{stage.number}. {stage.title}</span>
-                  <p className={`text-sm mt-1 ${isStageComplete(stage) ? 'text-black/70' : 'text-jade/60'}`}>
-                    {isStageComplete(stage) ? 'Completa — clic para editar' : 'En progreso — clic para continuar editando'}
-                  </p>
-                </div>
-                <BookOpen className={`w-5 h-5 ${isStageComplete(stage) ? 'text-black/50' : 'text-jade/40'}`} />
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Info message when group has a stage */}
-        {hasClaimedStage && (
-          <div className="mb-6 px-4 py-3 rounded-lg bg-neutral-900/50 border border-neutral-800 text-neutral-500 text-sm">
-            Las demás etapas están asignadas a otros grupos. Solo puedes editar tu etapa.
-          </div>
-        )}
-
-        {/* Stage Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {stages.map((stage) => {
-            const claimedByMe = isStageClaimedByMe(stage);
-            const claimedByOther = isStageClaimedByOther(stage);
-            const complete = isStageComplete(stage);
-            const isDisabled = claimedByOther || (hasClaimedStage && !claimedByMe);
-
-            return (
-              <button
-                key={stage.id}
-                onClick={() => handleSelectStage(stage)}
-                disabled={isDisabled}
-                className={`relative group p-5 rounded-xl border text-left transition-all duration-300 ${
-                  isDisabled
-                    ? 'border-neutral-800 bg-neutral-950/50 cursor-not-allowed opacity-50'
-                    : claimedByMe
-                    ? 'border-jade/40 bg-jade/5 hover:border-jade/60 hover:bg-jade/10 cursor-pointer'
-                    : 'border-neutral-800 bg-neutral-950/80 hover:border-jade/30 hover:bg-neutral-900/80 cursor-pointer'
-                }`}
-              >
-                {/* Stage Number */}
-                <div className={`absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                  claimedByMe ? 'bg-jade text-black' : 'bg-neutral-800 text-neutral-400'
-                }`}>
-                  {stage.number}
-                </div>
-
-                {/* Title */}
-                <h3 className={`font-serif font-bold text-base mb-2 pr-10 ${
-                  isDisabled ? 'text-neutral-500' : 'text-white'
-                }`}>
-                  {stage.title}
-                </h3>
-
-                {/* Description */}
-                <p className="text-xs text-neutral-500 line-clamp-2 mb-3">
-                  {stage.description}
-                </p>
-
-                {/* Status */}
-                <div className="flex items-center gap-2 text-xs">
-                  {claimedByOther ? (
-                    <>
-                      <Lock className="w-3 h-3 text-neutral-600" />
-                      <span className="text-neutral-600">
-                        <User className="w-3 h-3 inline mr-1" />
-                        {stage.group?.student1} y {stage.group?.student2}
-                      </span>
-                    </>
-                  ) : claimedByMe ? (
-                    <span className={`flex items-center gap-1 ${complete ? 'text-jade' : 'text-yellow-500'}`}>
-                      {complete ? 'Completa' : 'En progreso'}
-                    </span>
-                  ) : hasClaimedStage ? (
-                    <span className="text-neutral-600">No disponible</span>
-                  ) : (
-                    <span className="text-jade/60">Disponible</span>
-                  )}
-                </div>
-
-                {/* Hover Effect */}
-                {!isDisabled && (
-                  <div className="absolute inset-0 rounded-xl bg-jade/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+  return <main className="app-shell selection-page">
+    <header className="workspace-header"><Brand /><div className="header-actions"><button className="action-secondary" onClick={() => setView('book')}><BookOpen size={17} /><span>El libro</span></button><button className="icon-button" aria-label="Cerrar sesión del equipo" disabled={loggingOut} onClick={async () => { setLoggingOut(true); try { await useAppStore.getState().reset(); } catch (error) { setError(error instanceof Error ? error.message : 'No pudimos salir.'); setLoggingOut(false); } }}><LogOut size={19} /></button></div></header>
+    <div className="workspace-content">
+      <section className="selection-heading"><div><span className="eyebrow">EL TALLER DE NUESTRA CLASE</span><h1>{ours ? 'Su historia está tomando forma.' : <>Nuestros capítulos.<br /><em>Muchas voces.</em></>}</h1><p>Bienvenidos, <strong>{group?.student1} y {group?.student2}</strong>.<br />{ours ? 'Continúen creando y descubran los aportes de sus compañeros.' : 'Elijan un capítulo para contarlo a su manera.'}</p></div><div className="chapter-tally"><strong>{String(contributions).padStart(2, '0')}</strong><span>capítulos con aportes<br />de {stages.length || 12} en nuestra historia</span></div></section>
+      <section className="collective-banner"><div className="banner-cover" aria-hidden="true"><span>POPOL VUH</span><EditorialMark /></div><div><span className="eyebrow">NUESTRA EDICIÓN COLECTIVA</span><h2>Una historia que crece con cada equipo.</h2><p>Abran el libro, pasen sus páginas y escuchen las voces de la clase.</p></div><button className="action-primary banner-action" onClick={() => setView('book')}>Abrir el libro <ArrowRight size={18} /></button></section>
+      {error && <div className="error-notice" role="alert">{error}<button className="quiet-link" onClick={() => { setLoading(true); void refresh(); }}><RefreshCw size={16} /> Reintentar</button></div>}
+      {ours && <section className="our-chapter paper-card"><div><span className="eyebrow">NUESTRO CAPÍTULO</span><h2><span>{String(ours.number).padStart(2, '0')}</span> {ours.title}</h2><StageProgress stage={ours} /></div><button className="action-primary" onClick={() => void choose(ours)}>Continuar creando <ArrowRight size={18} /></button></section>}
+      <div className="section-rule"><h2>Los capítulos del libro</h2><span>{ours ? 'Cada equipo aporta su mirada' : 'Elijan uno que esté disponible'}</span></div>
+      {loading ? <div className="chapter-grid" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div className="chapter-skeleton" key={i} />)}</div> : !stages.length ? <div className="paper-card empty-card"><BookOpen size={32} /><h2>El taller está por comenzar</h2><p>Los capítulos aparecerán cuando el docente prepare la actividad.</p></div> : <div className="chapter-grid">{stages.map((stage) => {
+        const mine = stage.groupId === group?.id;
+        const reserved = !!stage.groupId;
+        const disabled = !!claiming || (reserved && !mine) || (!!ours && !mine);
+        const hasContent = stage.hasText || stage.hasImage || stage.hasAudio || stage.text || stage.imageUrl || stage.audioData;
+        return <article className={`chapter-card ${mine ? 'chapter-mine' : ''}`} key={stage.id}><div className="chapter-card-top"><span className="chapter-number">{String(stage.number).padStart(2, '0')}</span><span className={`chapter-status ${reserved ? 'reserved' : ''}`}>{mine ? 'Nuestro capítulo' : hasContent ? 'Con aportes' : reserved ? 'En edición' : 'Disponible'}</span></div><h3>{stage.title}</h3><p>{stage.description}</p><StageProgress stage={stage} /><div className="chapter-card-bottom">{reserved && !mine ? <span className="chapter-authors"><LockKeyhole size={14} />{stage.group?.student1} y {stage.group?.student2}</span> : <button disabled={disabled} onClick={() => void choose(stage)}>{claiming === stage.id ? <><Loader2 size={16} className="animate-spin" /> Reservando…</> : <>{mine ? 'Continuar' : ours ? 'Otro equipo puede elegirlo' : 'Elegir este capítulo'}{!disabled && <ArrowRight size={17} />}</>}</button>}</div></article>;
+      })}</div>}
+      <footer className="workspace-footer"><span>✦</span> Sus palabras también forman parte de esta historia.</footer>
     </div>
-  );
+  </main>;
 }

@@ -1,363 +1,74 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useAppStore, StageData } from '@/lib/store';
-import { Trash2, Edit3, Save, X, Users, BookOpen, LogOut, Volume2, Pause, ImagePlus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowRight, BookOpen, Check, ImagePlus, LogOut, Mic, Pencil, RefreshCw, Save, Trash2, X } from 'lucide-react';
+import { StageData, useAppStore } from '@/lib/store';
+import { prepareEditorImage } from '@/lib/editor-image';
+import { Brand } from './EditorialMark';
+import { StageProgress } from './StageSelection';
 import AudioRecorder from './AudioRecorder';
 
+interface Editing { stage: StageData; text: string; imageUrl: string | null; audioData: string | null }
+
 export default function AdminPanel() {
-  const { stages, setView, setStages, updateStage } = useAppStore();
-  const [editingStageId, setEditingStageId] = useState<string | null>(null);
-  const [editText, setEditText] = useState('');
-  const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
-  const [editAudioData, setEditAudioData] = useState('');
-  const [playingAudio, setPlayingAudio] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'stages' | 'book'>('stages');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const startEditing = (stage: StageData) => {
-    setEditingStageId(stage.id);
-    setEditText(stage.text || '');
-    setEditImageUrl(stage.imageUrl || null);
-    setEditAudioData(stage.audioData || '');
-  };
-
-  const cancelEditing = () => {
-    setEditingStageId(null);
-    setEditText('');
-    setEditImageUrl(null);
-    setEditAudioData('');
-  };
-
-  const saveEditing = async (stageId: string) => {
-    setSaving(true);
+  const { stages, setStages, setView, updateStage } = useAppStore();
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [listeningId, setListeningId] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const complete = stages.filter((s) => (s.hasText ?? !!s.text) && (s.hasImage ?? !!s.imageUrl) && (s.hasAudio ?? !!s.audioData)).length;
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch(`/api/admin/stages/${stageId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: editText || null,
-          imageUrl: editImageUrl || null,
-          audioData: editAudioData || null,
-        }),
-      });
-      const updatedStage = await res.json();
-      updateStage(updatedStage);
-      setEditingStageId(null);
-    } catch {
-      alert('Error al guardar');
-    } finally {
-      setSaving(false);
-    }
-  };
+      const response = await fetch('/api/admin/stages', { cache: 'no-store', signal });
+      const result = await response.json();
+      if (!response.ok || !Array.isArray(result)) throw new Error(result.error || 'No pudimos cargar el taller.');
+      setStages(result);
+    } catch (error) { if (!signal?.aborted) setError(error instanceof Error ? error.message : 'No pudimos conectar.'); }
+  }, [setStages]);
+  useEffect(() => { const controller = new AbortController(); void Promise.resolve().then(() => { if (!controller.signal.aborted) return refresh(controller.signal); }); return () => controller.abort(); }, [refresh]);
 
-  const resetStage = async (stageId: string) => {
-    if (!confirm('¿Estás seguro de que quieres resetear esta etapa? Se borrará todo el contenido y la asignación del grupo.')) return;
-
+  const openEditor = async (stage: StageData) => {
+    setBusy(stage.id); setError(''); setNotice(''); setListeningId(null);
     try {
-      const res = await fetch(`/api/admin/stages/${stageId}`, { method: 'DELETE' });
-      const updatedStage = await res.json();
-      updateStage(updatedStage);
-    } catch {
-      alert('Error al resetear');
-    }
+      const response = await fetch(`/api/stages/${stage.id}`, { cache: 'no-store' });
+      const detail = await response.json();
+      if (!response.ok || !detail.id) throw new Error(detail.error || 'No pudimos abrir el capítulo.');
+      setEditing({ stage: detail, text: detail.text || '', imageUrl: detail.imageUrl, audioData: detail.audioData });
+    } catch (error) { setError(error instanceof Error ? error.message : 'No pudimos abrir el capítulo.'); }
+    finally { setBusy(null); }
+  };
+  const save = async () => {
+    if (!editing) return;
+    setBusy(editing.stage.id); setError('');
+    try {
+      const response = await fetch(`/api/admin/stages/${editing.stage.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: editing.text || null, imageUrl: editing.imageUrl, audioData: editing.audioData, expectedUpdatedAt: editing.stage.updatedAt }) });
+      const result = await response.json();
+      if (!response.ok || !result.id) throw new Error(result.error || 'No pudimos guardar. Los cambios siguen en el editor.');
+      updateStage(result); setEditing(null); setNotice('Los cambios del capítulo se guardaron.');
+    } catch (error) { setError(error instanceof Error ? error.message : 'No pudimos guardar. Los cambios siguen en el editor.'); }
+    finally { setBusy(null); }
+  };
+  const clear = async (stage: StageData) => {
+    if (!window.confirm(`¿Vaciar «${stage.title}» y liberar su equipo? Se quitarán el texto, la imagen y la voz. Esta acción no se puede deshacer desde la app.`)) return;
+    setBusy(stage.id); setError('');
+    try {
+      const response = await fetch(`/api/admin/stages/${stage.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedUpdatedAt: stage.updatedAt }) });
+      const result = await response.json();
+      if (!response.ok || !result.id) throw new Error(result.error || 'No pudimos liberar el capítulo.');
+      updateStage(result); setNotice('Capítulo liberado.');
+    } catch (error) { setError(error instanceof Error ? error.message : 'No pudimos liberar el capítulo.'); }
+    finally { setBusy(null); }
   };
 
-  const playAudio = (stageId: string, audioDataBase64: string) => {
-    if (playingAudio === stageId) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      setPlayingAudio(null);
-      return;
-    }
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-
-    const audioUrl = audioDataBase64.startsWith('data:') ? audioDataBase64 : `data:audio/webm;base64,${audioDataBase64}`;
-    const audio = new Audio(audioUrl);
-    audioRef.current = audio;
-    audio.onended = () => {
-      setPlayingAudio(null);
-      audioRef.current = null;
-    };
-    audio.play();
-    setPlayingAudio(stageId);
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setEditImageUrl(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const refreshStages = async () => {
-    const res = await fetch('/api/stages');
-    const data = await res.json();
-    setStages(data);
-  };
-
-  useEffect(() => {
-    refreshStages();
-  }, []);
-
-  return (
-    <div className="min-h-screen bg-black text-white p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
-          <div>
-            <h1 className="text-3xl font-serif font-bold">
-              <span className="text-jade">Panel</span> Docente
-            </h1>
-            <p className="text-neutral-500 text-sm mt-1">Administrar etapas del Popol Vuh</p>
-          </div>
-          <div className="flex gap-3">
-            <Button
-              onClick={() => setView('book')}
-              variant="outline"
-              className="border-neutral-800 text-neutral-400 hover:text-white hover:border-jade/50"
-            >
-              <BookOpen className="w-4 h-4 mr-2" />
-              Ver Libro
-            </Button>
-            <Button
-              onClick={() => useAppStore.getState().reset()}
-              variant="ghost"
-              className="text-neutral-500 hover:text-red-400"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Salir
-            </Button>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-1 mb-6 bg-neutral-950 p-1 rounded-lg w-fit">
-          <button
-            onClick={() => setActiveTab('stages')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              activeTab === 'stages' ? 'bg-jade text-black' : 'text-neutral-400 hover:text-white'
-            }`}
-          >
-            Etapas
-          </button>
-          <button
-            onClick={() => setActiveTab('book')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              activeTab === 'book' ? 'bg-jade text-black' : 'text-neutral-400 hover:text-white'
-            }`}
-          >
-            Libro
-          </button>
-        </div>
-
-        {activeTab === 'stages' && (
-          <div className="space-y-4">
-            {stages.map((stage) => {
-              const isEditing = editingStageId === stage.id;
-
-              return (
-                <div
-                  key={stage.id}
-                  className={`rounded-xl border p-5 transition-all ${
-                    isEditing
-                      ? 'border-jade/40 bg-jade/5'
-                      : 'border-neutral-800 bg-neutral-950/80'
-                  }`}
-                >
-                  {/* Stage Header */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-start gap-3">
-                      <span className="w-8 h-8 rounded-full bg-jade/20 text-jade text-sm flex items-center justify-center font-bold shrink-0">
-                        {stage.number}
-                      </span>
-                      <div>
-                        <h3 className="font-serif font-bold text-white">{stage.title}</h3>
-                        <p className="text-neutral-500 text-xs">{stage.description}</p>
-                        {stage.group && (
-                          <p className="text-jade/60 text-xs mt-1 flex items-center gap-1">
-                            <Users className="w-3 h-3" />
-                            {stage.group.student1} y {stage.group.student2}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 shrink-0 ml-4">
-                      {!isEditing ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => startEditing(stage)}
-                            className="border-neutral-700 text-neutral-400 hover:text-white hover:border-jade/50 h-8"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 mr-1" />
-                            Editar
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => resetStage(stage.id)}
-                            className="border-neutral-700 text-red-400 hover:text-red-300 hover:border-red-500/50 h-8"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 mr-1" />
-                            Resetear
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            size="sm"
-                            onClick={() => saveEditing(stage.id)}
-                            disabled={saving}
-                            className="bg-jade hover:bg-jade-dark text-black h-8"
-                          >
-                            <Save className="w-3.5 h-3.5 mr-1" />
-                            {saving ? 'Guardando...' : 'Guardar'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={cancelEditing}
-                            className="border-neutral-700 text-neutral-400 h-8"
-                          >
-                            <X className="w-3.5 h-3.5 mr-1" />
-                            Cancelar
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Content Preview or Editor */}
-                  {isEditing ? (
-                    <div className="space-y-4 mt-4 pt-4 border-t border-jade/20">
-                      <div>
-                        <label className="text-neutral-400 text-xs mb-1 block">Texto</label>
-                        <Textarea
-                          value={editText}
-                          onChange={(e) => setEditText(e.target.value)}
-                          className="min-h-[120px] bg-neutral-900 border-neutral-800 text-white focus:border-jade"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-neutral-400 text-xs mb-1 block">Imagen</label>
-                        {editImageUrl && (
-                          <div className="relative group mb-2">
-                            <img src={editImageUrl} alt="" className="max-h-40 rounded-lg object-contain bg-neutral-900" />
-                            <button
-                              onClick={() => setEditImageUrl(null)}
-                              className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/70 text-red-400 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="border-neutral-700 text-neutral-400 hover:text-white hover:border-jade/50"
-                        >
-                          <ImagePlus className="w-3.5 h-3.5 mr-1" />
-                          {editImageUrl ? 'Cambiar' : 'Subir'} imagen
-                        </Button>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageUpload}
-                          className="hidden"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-neutral-400 text-xs mb-1 block">Audio</label>
-                        <AudioRecorder
-                          onAudioRecorded={(base64) => setEditAudioData(base64)}
-                          initialAudio={editAudioData || null}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mt-3 space-y-2">
-                      <div className="flex flex-wrap gap-2">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
-                          stage.text ? 'bg-jade/15 text-jade' : 'bg-neutral-800 text-neutral-500'
-                        }`}>
-                          {stage.text ? '✓' : '✗'} Texto
-                        </span>
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
-                          stage.imageUrl ? 'bg-jade/15 text-jade' : 'bg-neutral-800 text-neutral-500'
-                        }`}>
-                          {stage.imageUrl ? '✓' : '✗'} Imagen
-                        </span>
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
-                          stage.audioData ? 'bg-jade/15 text-jade' : 'bg-neutral-800 text-neutral-500'
-                        }`}>
-                          {stage.audioData ? '✓' : '✗'} Audio
-                        </span>
-                      </div>
-
-                      {stage.text && (
-                        <p className="text-neutral-400 text-sm line-clamp-2">{stage.text}</p>
-                      )}
-                      {stage.imageUrl && (
-                        <img src={stage.imageUrl} alt="" className="w-20 h-20 object-cover rounded-lg" />
-                      )}
-                      {stage.audioData && (
-                        <button
-                          onClick={() => playAudio(stage.id, stage.audioData!)}
-                          className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                            playingAudio === stage.id
-                              ? 'bg-red-500/20 text-red-400'
-                              : 'bg-jade/10 text-jade hover:bg-jade/20'
-                          }`}
-                        >
-                          {playingAudio === stage.id ? (
-                            <><Pause className="w-3 h-3" /> Pausar</>
-                          ) : (
-                            <><Volume2 className="w-3 h-3" /> Reproducir</>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {activeTab === 'book' && (
-          <div className="text-center py-12">
-            <BookOpen className="w-16 h-16 mx-auto mb-4 text-jade/30" />
-            <p className="text-neutral-400 mb-4">Vista previa del libro completo</p>
-            <Button
-              onClick={() => setView('book')}
-              className="bg-jade hover:bg-jade-dark text-black font-semibold"
-            >
-              <BookOpen className="w-4 h-4 mr-2" />
-              Abrir Libro
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return <main className="app-shell admin-page"><header className="workspace-header"><Brand /><div className="header-actions"><button className="action-secondary" onClick={() => setView('book')}><BookOpen size={17} /> El libro</button><button className="icon-button" aria-label="Cerrar sesión docente" onClick={async () => { try { await useAppStore.getState().reset(); } catch { setError('No pudimos cerrar la sesión.'); } }}><LogOut size={18} /></button></div></header><div className="workspace-content">
+    <section className="selection-heading"><div><span className="eyebrow">EL ESPACIO DEL DOCENTE</span><h1>Acompañar<br /><em>cada mirada.</em></h1><p>Revisá las creaciones, escuchá a los equipos y abrí el libro colectivo.</p></div><div className="chapter-tally"><strong>{String(complete).padStart(2, '0')}</strong><span>capítulos completos<br />de {stages.length} en el taller</span></div></section>
+    <section className="teacher-summary paper-card"><div><span className="eyebrow">ASÍ CRECE NUESTRO LIBRO</span><h2>{stages.filter((s) => s.groupId).length} equipos creando una misma historia.</h2></div><button className="action-primary" onClick={() => setView('book')}>Ver la edición <ArrowRight size={18} /></button></section>
+    {error && <p className="error-notice" role="alert">{error}</p>}{notice && <p className="teacher-notice" role="status"><Check size={16} />{notice}</p>}
+    <div className="section-rule"><h2>Los capítulos de la clase</h2><button className="quiet-link" onClick={() => { setError(''); void refresh(); }}><RefreshCw size={15} /> Actualizar</button></div>
+    <div className="teacher-stages">{stages.map((stage) => <article className={`teacher-stage paper-card ${editing?.stage.id === stage.id ? 'teacher-stage-editing' : ''}`} key={stage.id}><div className="teacher-stage-heading"><span className="chapter-number">{String(stage.number).padStart(2, '0')}</span><div><h2>{stage.title}</h2><p>{stage.group ? `${stage.group.student1} y ${stage.group.student2}` : 'Disponible para un equipo'}</p><StageProgress stage={stage} /></div><div className="teacher-stage-actions"><button className="action-secondary" disabled={!!busy || (!!editing && editing.stage.id !== stage.id)} onClick={() => void openEditor(stage)}><Pencil size={15} />{busy === stage.id ? 'Preparando…' : 'Editar'}</button><button className="icon-button teacher-delete" title="Vaciar y liberar capítulo" aria-label={`Vaciar y liberar ${stage.title}`} disabled={!!busy || !!editing} onClick={() => void clear(stage)}><Trash2 size={16} /></button></div></div>
+      {editing?.stage.id === stage.id ? <div className="teacher-editor"><label htmlFor="teacher-text">Resumen del capítulo<textarea id="teacher-text" value={editing.text} onChange={(e) => setEditing({ ...editing, text: e.target.value })} disabled={!!busy} /></label><section><h3>Ilustración</h3>{editing.imageUrl && <img src={editing.imageUrl} alt={`Ilustración de ${stage.title}`} className="teacher-image" />}<div className="teacher-media-actions"><button className="action-secondary" disabled={!!busy} onClick={() => inputRef.current?.click()}><ImagePlus size={16} />{editing.imageUrl ? 'Cambiar imagen' : 'Agregar imagen'}</button>{editing.imageUrl && <button className="quiet-link" onClick={() => setEditing({ ...editing, imageUrl: null })}><Trash2 size={16} /> Quitar imagen</button>}</div><input ref={inputRef} type="file" className="sr-only" tabIndex={-1} accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setBusy(stage.id); try { const imageUrl = await prepareEditorImage(file); setEditing((current) => current ? { ...current, imageUrl } : current); } catch (error) { setError(error instanceof Error ? error.message : 'No pudimos abrir la imagen.'); } finally { setBusy(null); } }} /></section><section><h3>La voz del equipo</h3><AudioRecorder initialAudio={editing.audioData} onAudioRecorded={(audioData) => setEditing((current) => current ? { ...current, audioData: audioData || null } : current)} /></section><div className="teacher-save-actions"><button className="action-secondary" disabled={!!busy} onClick={() => { if (window.confirm('¿Cerrar la edición sin guardar los cambios docentes?')) setEditing(null); }}><X size={16} /> Cancelar</button><button className="action-primary" disabled={!!busy} onClick={() => void save()}><Save size={16} />{busy ? 'Guardando…' : 'Guardar cambios'}</button></div></div> : (stage.hasAudio || stage.audioData) && <div className="teacher-audio">{listeningId === stage.id ? <audio key={stage.id} controls preload="metadata" src={stage.audioData || undefined} /> : <button className="quiet-link" onClick={() => setListeningId(stage.id)}><Mic size={16} /> Escuchar a este equipo</button>}</div>}
+    </article>)}</div><footer className="workspace-footer">Cada capítulo merece una mirada atenta.</footer>
+  </div></main>;
 }

@@ -1,43 +1,16 @@
-import { db } from '@/lib/db';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { requireSession } from '@/lib/server/auth';
+import { ApiError, apiError, json } from '@/lib/server/errors';
+import { claimStage } from '@/lib/server/repository';
+import { checkOrigin, validId } from '@/lib/server/validation';
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const runtime = 'nodejs';
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params;
-    const { groupId } = await request.json();
-
-    if (!groupId) {
-      return NextResponse.json({ error: 'groupId es requerido' }, { status: 400 });
-    }
-
-    // Check if stage is already claimed
-    const existingStage = await db.stage.findUnique({
-      where: { id },
-      include: { group: true }
-    });
-
-    if (!existingStage) {
-      return NextResponse.json({ error: 'Etapa no encontrada' }, { status: 404 });
-    }
-
-    if (existingStage.groupId) {
-      return NextResponse.json(
-        { error: 'Esta etapa ya fue elegida por otro grupo', stage: existingStage },
-        { status: 409 }
-      );
-    }
-
-    const stage = await db.stage.update({
-      where: { id },
-      data: { groupId },
-      include: { group: true }
-    });
-
-    return NextResponse.json(stage);
-  } catch {
-    return NextResponse.json({ error: 'Error al reclamar etapa' }, { status: 500 });
-  }
+    checkOrigin(request);
+    const session = requireSession(request);
+    if (session.role !== 'group' || !session.groupId) throw new ApiError(403, 'Ingresá como equipo para elegir un capítulo.', 'GROUP_REQUIRED');
+    // Client groupId is ignored: ownership comes only from the signed cookie.
+    return json(await claimStage(validId((await params).id), session.groupId));
+  } catch (error) { return apiError(error); }
 }

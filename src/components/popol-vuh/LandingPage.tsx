@@ -1,144 +1,59 @@
 'use client';
 
 import { useState } from 'react';
+import { ArrowRight, BookOpen, Mic, PenLine, Shield, Users } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
-import { Book, Users, Shield } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Brand, EditorialMark } from './EditorialMark';
 
 export default function LandingPage() {
-  const { setView, setGroup, setStages } = useAppStore();
+  const { group, isAdmin, setGroup, setView } = useAppStore();
   const [student1, setStudent1] = useState('');
   const [student2, setStudent2] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!student1.trim() || !student2.trim()) {
-      setError('Ambos nombres son requeridos');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
+  const enter = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!student1.trim() || !student2.trim()) { setError('Escriban los nombres de los dos integrantes.'); return; }
+    setBusy(true); setError('');
     try {
-      const res = await fetch('/api/groups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ student1: student1.trim(), student2: student2.trim() }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || 'Error al crear grupo');
-        return;
-      }
-
-      setGroup(data);
-
-      // Fetch stages
-      const stagesRes = await fetch('/api/stages');
-      const stagesData = await stagesRes.json();
-      setStages(stagesData);
-
-      setView('stages');
-    } catch {
-      setError('Error de conexión');
-    } finally {
-      setLoading(false);
-    }
+      const response = await fetch('/api/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ student1: student1.trim(), student2: student2.trim() }) });
+      const result = await response.json();
+      if (!response.ok || !result.id) throw new Error(result.error || 'No pudimos ingresar al equipo.');
+      setGroup(result); setView('stages');
+    } catch (error) { setError(error instanceof Error ? error.message : 'Revisá tu conexión e intentá de nuevo.'); }
+    finally { setBusy(false); }
   };
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-black p-4">
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-jade/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-jade/3 rounded-full blur-3xl" />
-      </div>
-
-      <div className="relative z-10 w-full max-w-lg">
-        {/* Logo / Title */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full border-2 border-jade/30 bg-jade/10 mb-6">
-            <Book className="w-10 h-10 text-jade" />
-          </div>
-          <h1 className="text-4xl md:text-5xl font-serif font-bold text-white mb-3">
-            Popol Vuh
-          </h1>
-          <p className="text-jade/70 text-lg font-light tracking-wide">
-            El Libro del Consejo Maya
-          </p>
+  return <main className="landing-page">
+    <header className="landing-header"><Brand /><button className="quiet-link" onClick={() => setView(isAdmin ? 'admin' : 'admin-login')}><Shield size={16} /> Acceso docente</button></header>
+    <div className="landing-grid">
+      <section className="landing-story" aria-labelledby="landing-title">
+        <span className="eyebrow"><span className="tiny-star">✦</span> UNA HISTORIA QUE NOS REÚNE</span>
+        <h1 id="landing-title">Un libro antiguo.<br />Una <em>nueva voz.</em></h1>
+        <p className="landing-intro">El Popol Vuh cobra vida con sus palabras, sus imágenes y sus voces. Creemos juntos el libro de nuestra clase.</p>
+        <div className="landing-book-scene" aria-hidden="true">
+          <div className="scene-orbit orbit-one" /><div className="scene-orbit orbit-two" />
+          <span className="scene-star star-one">✦</span><span className="scene-star star-two">✧</span>
+          <div className="showcase-book"><div className="showcase-cover"><small>EL LIBRO DEL CONSEJO</small><strong>Popol<br />Vuh</strong><EditorialMark /><span>PALABRAS · IMÁGENES · VOCES</span></div><div className="showcase-pages" /></div>
+          <span className="scene-caption">Una creación colectiva, página a página.</span>
         </div>
-
-        {/* Login Form */}
-        <form onSubmit={handleSubmit} className="space-y-6 bg-neutral-950/80 backdrop-blur-sm border border-jade/20 rounded-2xl p-8 shadow-2xl shadow-jade/5">
-          <div className="flex items-center gap-2 mb-4">
-            <Users className="w-5 h-5 text-jade" />
-            <h2 className="text-xl text-white font-medium">Ingresen sus nombres</h2>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="student1" className="text-neutral-300 text-sm">
-              Alumno/a 1
-            </Label>
-            <Input
-              id="student1"
-              value={student1}
-              onChange={(e) => setStudent1(e.target.value)}
-              placeholder="Nombre del primer alumno/a"
-              className="bg-neutral-900 border-neutral-800 text-white placeholder:text-neutral-600 focus:border-jade focus:ring-jade/20"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="student2" className="text-neutral-300 text-sm">
-              Alumno/a 2
-            </Label>
-            <Input
-              id="student2"
-              value={student2}
-              onChange={(e) => setStudent2(e.target.value)}
-              placeholder="Nombre del segundo alumno/a"
-              className="bg-neutral-900 border-neutral-800 text-white placeholder:text-neutral-600 focus:border-jade focus:ring-jade/20"
-            />
-          </div>
-
-          {error && (
-            <p className="text-red-400 text-sm text-center">{error}</p>
-          )}
-
-          <Button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-jade hover:bg-jade-dark text-black font-semibold py-3 text-base transition-all duration-200 hover:shadow-lg hover:shadow-jade/20"
-          >
-            {loading ? 'Ingresando...' : 'Ingresar'}
-          </Button>
-
-          <div className="relative my-4">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-neutral-800" />
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="bg-neutral-950 px-3 text-neutral-500">o</span>
-            </div>
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setView('admin-login')}
-            className="w-full border-neutral-800 text-neutral-400 hover:text-white hover:border-jade/50 hover:bg-jade/5 transition-all duration-200"
-          >
-            <Shield className="w-4 h-4 mr-2" />
-            Acceso Docente
-          </Button>
-        </form>
-      </div>
+      </section>
+      <section className="entry-card paper-card" aria-labelledby="entry-title">
+        <span className="entry-icon"><Users size={24} /></span>
+        <span className="eyebrow">EL TALLER EMPIEZA ACÁ</span>
+        <h2 id="entry-title">Dos autores.<br /> Un capítulo.</h2>
+        <p>Ingresen los nombres de su pareja para comenzar a crear.</p>
+        {group || isAdmin ? <div className="resume-team"><span className="eyebrow">SU SESIÓN SIGUE ABIERTA</span><strong>{group ? `${group.student1} y ${group.student2}` : 'Panel docente'}</strong><button className="action-primary" onClick={() => setView(isAdmin ? 'admin' : 'stages')}>Continuar <ArrowRight size={18} /></button><button className="quiet-link" onClick={async () => { try { await useAppStore.getState().reset(); } catch { setError('No pudimos cerrar la sesión. Intentá de nuevo.'); } }}>Cambiar de equipo</button></div>
+          : <form onSubmit={enter} className="entry-form">
+            <label htmlFor="student1">Primer integrante<input id="student1" value={student1} maxLength={80} onChange={(e) => setStudent1(e.target.value)} placeholder="Nombre y apellido" autoComplete="off" required disabled={busy} /></label>
+            <label htmlFor="student2">Segundo integrante<input id="student2" value={student2} maxLength={80} onChange={(e) => setStudent2(e.target.value)} placeholder="Nombre y apellido" autoComplete="off" required disabled={busy} /></label>
+            <button className="action-primary" disabled={busy} type="submit">{busy ? 'Preparando el taller…' : 'Comenzar nuestro capítulo'}<ArrowRight size={18} /></button>
+          </form>}
+        {error && <p className="error-notice" role="alert">{error}</p>}
+        <div className="entry-note"><span>01</span> Elijan un capítulo. <span>02</span> Háganlo suyo.</div>
+      </section>
     </div>
-  );
+    <footer className="landing-footer"><span>UN RELATO. MUCHAS MIRADAS.</span><div><span><PenLine size={16} /> Escribir</span><i /><span><BookOpen size={16} /> Ilustrar</span><i /><span><Mic size={16} /> Narrar</span></div><span>HECHO POR NUESTRA CLASE</span></footer>
+  </main>;
 }

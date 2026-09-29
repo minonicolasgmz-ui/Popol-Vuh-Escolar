@@ -1,14 +1,12 @@
-import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { requireSession } from '@/lib/server/auth';
+import { apiError, json } from '@/lib/server/errors';
+import { listStages } from '@/lib/server/repository';
 
-export async function GET() {
+export const runtime = 'nodejs';
+export async function GET(request: NextRequest) {
   try {
-    const stages = await db.stage.findMany({
-      include: { group: true },
-      orderBy: { number: 'asc' }
-    });
-    return NextResponse.json(stages);
-  } catch {
-    return NextResponse.json({ error: 'Error al obtener etapas' }, { status: 500 });
-  }
+    requireSession(request);
+    return json(await listStages(request.nextUrl.searchParams.get('mode') === 'book'));
+  } catch (error) { return apiError(error); }
 }
