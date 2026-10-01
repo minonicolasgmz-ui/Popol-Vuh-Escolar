@@ -32,6 +32,10 @@ export default function LandingPage() {
         <span className="eyebrow"><span className="tiny-star">✦</span> UNA HISTORIA QUE NOS REÚNE</span>
         <h1 id="landing-title">Un libro antiguo.<br />Una <em>nueva voz.</em></h1>
         <p className="landing-intro">El Popol Vuh cobra vida con sus palabras, sus imágenes y sus voces. Creemos juntos el libro de nuestra clase.</p>
+        <div className="landing-read-action">
+          <button className="action-secondary" type="button" onClick={() => setView('book')}><BookOpen size={18} />Abrir el libro<ArrowRight size={18} /></button>
+          <p>Para leer y escuchar, no hace falta ingresar los nombres.</p>
+        </div>
         <div className="landing-book-scene" aria-hidden="true">
           <div className="scene-orbit orbit-one" /><div className="scene-orbit orbit-two" />
           <span className="scene-star star-one">✦</span><span className="scene-star star-two">✧</span>

@@ -224,6 +224,10 @@ h1, h2, h3 { text-wrap: balance; }
 .landing-story h1 { font-family: var(--font-editorial), Georgia, serif; color: var(--forest); font-size: clamp(44px,4.7vw,70px); line-height: 1.1; letter-spacing: -.045em; font-weight: 450; margin: 17px 0 22px; }
 .landing-story h1 em, .selection-heading h1 em, .admin-entry h1 em { font-weight: 450; color: var(--jade); }
 .landing-intro { max-width: 385px; color: #667063; font-size: 15px; line-height: 1.85; }
+.landing-read-action { display: grid; justify-items: start; gap: 10px; margin-top: 22px; }
+.landing-read-action .action-secondary { min-height: 48px; padding: 12px 18px; gap: 10px; }
+.landing-read-action > p { color: #70796c; font-size: 12px; line-height: 1.6; }
+@media (max-width: 640px) { .landing-read-action { justify-items: stretch; } .landing-read-action .action-secondary { justify-content: center; } }
 .landing-book-scene { position: relative; height: 300px; margin: 24px 0 0; display: flex; align-items: center; justify-content: center; isolation: isolate; }
 .scene-orbit { position: absolute; border: 1px solid #d6d9c5; border-radius: 50%; width: 320px; height: 270px; z-index: -1; transform: rotate(-25deg); }
 .orbit-two { transform: rotate(28deg); width: 280px; height: 285px; border-style: dashed; opacity: .5; }

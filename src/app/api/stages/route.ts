@@ -6,7 +6,8 @@ import { listStages } from '@/lib/server/repository';
 export const runtime = 'nodejs';
 export async function GET(request: NextRequest) {
   try {
-    requireSession(request);
-    return json(await listStages(request.nextUrl.searchParams.get('mode') === 'book'));
+    const book = request.nextUrl.searchParams.get('mode') === 'book';
+    if (!book) requireSession(request);
+    return json(await listStages(book));
   } catch (error) { return apiError(error); }
 }

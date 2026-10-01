@@ -4,6 +4,7 @@
 **Estado:** implementación local del rediseño terminada el 28/09/2026. Verificación automatizada y visual completada en navegador; quedan pendientes dispositivos físicos, mediciones de rendimiento móvil y almacenamiento externo. Ver [informe](docs/VERIFICACION_REDISENO.md) y registro al final.  
 **Prioridad:** experiencia en celulares y libro colectivo realista.  
 **Decisión confirmada por el usuario:** cada pareja escribe los dos nombres y trabaja desde un mismo celular.
+**Ampliación confirmada el 30/09/2026:** lectura del libro desde el inicio sin ingresar nombres. El ingreso de pareja se mantiene para crear y editar.
 
 ## 1. Resultado que buscamos
 
@@ -22,7 +23,7 @@ Este documento conserva la investigación inicial y registra la ejecución. Las 
 - Conservar los contenidos existentes durante cualquier cambio de almacenamiento.
 - Incorporar las mejoras de guardado, medios y navegación necesarias para que el rediseño sea fiable.
 
-No forman parte de la primera versión: edición simultánea desde dos dispositivos, cuentas individuales, chat, generación automática de trabajos de alumnos, calificaciones, exportación PDF/EPUB, tienda, ni una PWA con funcionamiento completo sin conexión. Pueden evaluarse después. Tampoco se asume que el libro deba publicarse abiertamente en Internet.
+No forman parte de la primera versión: edición simultánea desde dos dispositivos, cuentas individuales, chat, generación automática de trabajos de alumnos, calificaciones, exportación PDF/EPUB, tienda, ni una PWA con funcionamiento completo sin conexión. Pueden evaluarse después. Desde el pedido del 30/09/2026, el libro admite visitantes sin sesión; publicar el alojamiento sigue siendo una tarea aparte.
 
 ## 2. Diagnóstico inicial del proyecto
 
@@ -386,7 +387,7 @@ Se implementaron `/`, `/capitulos`, `/capitulos/[id]/editar`, `/libro`, `/docent
 
 La revisión detectó que la edición de capítulos no verifica el equipo en servidor y que el acceso docente se apoya en una comprobación del cliente y un booleano persistido. Son hallazgos concretos, no una ampliación hacia un sistema complejo de cuentas.
 
-Antes de habilitar nuevas cargas de archivos y distribuir la versión renovada, usar sesiones verificadas por servidor, vincular cambios al equipo y proteger acciones docentes. Mantener el ingreso con dos nombres confirmado; la sesión técnica puede emitirse al ingresar. No confiar en `isAdmin` de localStorage ni en un `groupId` enviado por el cliente como autorización. La lectura del libro permanece dentro del ámbito actual hasta decidir explícitamente si tendrá acceso público.
+Antes de habilitar nuevas cargas de archivos y distribuir la versión renovada, usar sesiones verificadas por servidor, vincular cambios al equipo y proteger acciones docentes. Mantener el ingreso con dos nombres confirmado; la sesión técnica puede emitirse al ingresar. No confiar en `isAdmin` de localStorage ni en un `groupId` enviado por el cliente como autorización. La lectura del libro, sus ilustraciones y sus audios se habilitó para visitantes por el pedido explícito del 30/09/2026.
 
 ## 10. Ejecución por fases
 
@@ -493,7 +494,7 @@ Los tamaños son relativos: S = acotado; M = varios componentes; L = integració
 - [x] Sesiones firmadas verificadas en servidor, roles, origen y acciones docentes protegidas.
 - [x] Implementar reserva atómica y validación de pertenencia/un capítulo por equipo; verificar API demo.
 - [ ] Verificar transacciones enfrentadas sobre PostgreSQL de ensayo; nunca usar la base de la clase para esta prueba.
-- [x] Separar metadatos/textos de medios; listar sin blobs y servir medios autenticados mediante URLs versionadas.
+- [x] Separar metadatos/textos de medios; listar sin blobs y servir medios mediante URLs versionadas. Desde el 30/09, la lectura del libro y de sus medios es pública.
 - [ ] Seleccionar almacenamiento compatible con el alojamiento, límites y presupuesto.
 - [x] Admitir cargas optimizadas de imagen y audio con formato real; servir audio bajo demanda con rangos y ETag.
 - [ ] Incorporar subida directa y variantes en almacenamiento de objetos. Se conserva el almacenamiento legado en base64.
@@ -572,6 +573,8 @@ No hace falta automatizar cada detalle visual. Automatizar principalmente la ló
 | A01 | Teclado, lector de pantalla, zoom y movimiento reducido. | Recorrido equivalente, foco predecible y contenido íntegro. |
 | D01 | Medios antiguos/nuevos y actualización docente concurrente. | Compatibilidad conservada y conflictos visibles. |
 | D02 | Intento de editar capítulo ajeno o acción docente sin sesión válida. | Rechazo del servidor, sin depender de ocultar botones. |
+| P01 | Abrir el libro desde el inicio con ambos nombres vacíos; abrir `/libro` directamente y recargar. | Texto, ilustraciones y voz disponibles; Volver lleva al inicio y no se crea un equipo. |
+| P02 | Visitante intenta reservar, editar o borrar un capítulo. | Rechazo del servidor; leer el libro no concede permisos de escritura. |
 
 ### Qué significa «terminado»
 
@@ -604,3 +607,4 @@ En cada fase, registrar qué se entregó, archivos modificados, pruebas realizad
 | 27/09/2026 | Planificación | Auditoría de código, ingreso observado en navegador, investigación de motores y decisión de un celular por pareja. | Completa | Preparar línea base y fixtures aislados. |
 | 28/09/2026 | Ejecución iniciada | Desarrollo del libro, diseño móvil, editor/voz y contratos ligeros con sesiones de servidor. Las pruebas usarán datos ficticios aislados. | En curso | Integrar componentes y verificar el recorrido completo. |
 | 28/09/2026 | Implementación local y cierre | Libro real con `page-flip` 2.0.7, diseño editorial, rutas, borradores, imagen optimizada, grabadora/carga de audio, panel docente y API protegida. Pruebas, capturas y límites en `docs/VERIFICACION_REDISENO.md`. | Terminada y comprobada localmente | Ensayo en teléfonos físicos, rendimiento, PostgreSQL de ensayo y configuración del alojamiento/almacenamiento. |
+| 30/09/2026 | Lectura sin ingresar nombres | Botón **Abrir el libro** en el inicio; ruta y medios de lectura pública; regreso al inicio para visitantes. Recorrido móvil, audio, integración, tipos, pruebas y build comprobados en `docs/VERIFICACION_LIBRO_PUBLICO.md`. Lint de la app pasa; lint general detecta errores previos en `scripts/backup-and-clean.js`. | Terminada y comprobada localmente | Mantener las pruebas físicas pendientes y configurar publicación cuando se solicite. |

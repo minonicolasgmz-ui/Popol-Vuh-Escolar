@@ -25,18 +25,18 @@ export default function Home() {
   useEffect(() => { useAppStore.setState({ view, selectedStageId: stageId }); }, [view, stageId]);
   useEffect(() => {
     if (!hydrated || sessionError) return;
-    const protectedView = ['stages', 'editor', 'book', 'admin'].includes(view);
+    const protectedView = ['stages', 'editor', 'admin'].includes(view);
     if (protectedView && !group && !isAdmin) useAppStore.getState().setView(view === 'admin' ? 'admin-login' : 'landing');
     else if (view === 'admin' && !isAdmin) useAppStore.getState().setView('stages');
   }, [hydrated, group, isAdmin, sessionError, view]);
 
+  if (view === 'book') return <BookViewer />;
   if (!hydrated) return <LoadingScreen />;
   if (sessionError) return <main className="loading-screen"><div className="paper-card connection-card"><h1>Volvamos a conectar</h1><p>{sessionError}</p><button className="action-primary" onClick={() => void hydrate()}>Reintentar</button></div></main>;
   if (view === 'landing') return <LandingPage />;
   if (view === 'admin-login') return <AdminLogin />;
   if (!group && !isAdmin) return <LoadingScreen />;
   if (view === 'editor') return <StageEditor key={stageId} />;
-  if (view === 'book') return <BookViewer />;
   if (view === 'admin') return isAdmin ? <AdminPanel /> : <LoadingScreen />;
   return <StageSelection />;
 }

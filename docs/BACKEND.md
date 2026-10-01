@@ -28,6 +28,8 @@ Hay ocho capítulos ficticios: cuatro con aportes y cuatro disponibles. Los nomb
 
 ## Contratos HTTP
 
+Desde el 30/09/2026, por pedido del usuario, el libro es de lectura pública: cualquier visitante puede leer los capítulos guardados, ver sus autores/ilustraciones y escuchar sus audios sin escribir nombres ni crear una sesión. El acceso de equipos continúa siendo necesario para reservar y editar; la administración exige sesión docente.
+
 Todas las respuestas JSON de contenido llevan `Cache-Control: no-store`. Los errores tienen `{ error, code }` sin detalles internos ni secretos. Códigos relevantes: 401 sin sesión, 403 sin permiso, 409 conflicto de reserva/versión, 413 tamaño excesivo, 415 formato no permitido, 429 demasiados intentos y 503 configuración pendiente.
 
 | Método y ruta | Contrato |
@@ -37,7 +39,7 @@ Todas las respuestas JSON de contenido llevan `Cache-Control: no-store`. Los err
 | `DELETE /api/session` | Elimina la cookie y devuelve sesión vacía. |
 | `POST /api/admin/session` | `{password}` → cookie docente y `{group:null,isAdmin:true,demo}`. |
 | `GET /api/stages` | Requiere sesión; metadatos, `text:null`, `hasText/hasImage/hasAudio`, autores, fechas y URLs propias de medios. No carga blobs desde PostgreSQL. |
-| `GET /api/stages?mode=book` | Igual, con texto completo para construir páginas. Los medios siguen siendo URLs. |
+| `GET /api/stages?mode=book` | Lectura pública sin sesión, con texto completo para construir páginas. Los medios siguen siendo URLs; no crea equipo ni cookie. |
 | `GET /api/stages/:id` | Texto completo y URLs, disponible para cualquier equipo autenticado o docente. |
 | `PUT /api/stages/:id/claim` | Reserva para el equipo de la cookie. Ignora cualquier `groupId` del cliente; cuerpo opcional. |
 | `PUT /api/stages/:id` | `{expectedUpdatedAt,text?,imageUrl?,audioData?}`. Requiere pertenencia del equipo o acceso docente. |
@@ -45,8 +47,8 @@ Todas las respuestas JSON de contenido llevan `Cache-Control: no-store`. Los err
 | `GET /api/admin/stages` | Solo docente; textos y URLs de todos los capítulos. |
 | `PUT /api/admin/stages/:id` | Como PUT de capítulo; permite además `groupId`, `student1`, `student2`. |
 | `DELETE /api/admin/stages/:id` | Solo docente; JSON `{expectedUpdatedAt}`. Vacía los tres aportes y libera la reserva. La interfaz debe confirmar esta acción antes de enviarla. |
-| `GET/HEAD /api/stages/:id/media/image` | Imagen binaria autenticada con MIME, ETag y versión en URL. |
-| `GET/HEAD /api/stages/:id/media/audio` | Audio autenticado; admite un rango `bytes` con 206/416 y `If-Range`. |
+| `GET/HEAD /api/stages/:id/media/image` | Imagen de lectura pública con MIME, ETag y versión en URL. |
+| `GET/HEAD /api/stages/:id/media/audio` | Audio de lectura pública; admite un rango `bytes` con 206/416 y `If-Range`. |
 
 El consumidor debe usar el `updatedAt` recibido como `expectedUpdatedAt` al guardar. Un 409 conserva el borrador local y requiere revisar la versión actual. El servidor incrementa la versión aun cuando dos operaciones ocurren en el mismo milisegundo.
 
@@ -54,7 +56,7 @@ La reserva y las modificaciones reales usan transacciones PostgreSQL `Serializab
 
 ## Medios y compatibilidad
 
-Los campos existentes conservan el almacenamiento legado de base64. El listado SQL solo consulta presencia y metadatos; el libro añade texto. Los binarios se decodifican bajo demanda en rutas separadas, sin blobs dentro del JSON. Las respuestas binarias usan `private, no-cache`, `Vary: Cookie`, `ETag` y URLs versionadas por `updatedAt`; se exige sesión antes de responder incluso a una revalidación.
+Los campos existentes conservan el almacenamiento legado de base64. El listado SQL solo consulta presencia y metadatos; el libro añade texto. Los binarios se decodifican bajo demanda en rutas públicas separadas, sin blobs dentro del JSON. Las respuestas binarias usan `private, no-cache`, `ETag` y URLs versionadas por `updatedAt`; la lectura y la revalidación no requieren sesión. Las escrituras de contenido siguen verificando sesión, autoría y versión.
 
 En PUT, `null` elimina un medio, omitir el campo lo conserva y enviar la URL propia recibida también lo conserva. Una data URL válida lo reemplaza. No se guardan URLs internas como si fueran contenido ni se aceptan URLs arbitrarias nuevas. Las referencias HTTPS antiguas se mantienen mediante redirección sin petición de red del servidor. Formatos heredados reconocidos por firma tienen prioridad sobre un MIME antiguo incorrecto. Si un medio histórico usa otro formato, se devuelve un error recuperable y se conserva el registro.
 
@@ -78,4 +80,4 @@ $env:BACKEND_TEST_URL = 'http://127.0.0.1:3000'
 node tests/backend-demo.mjs
 ```
 
-Las pruebas de integración crean nombres ficticios y liberan los dos capítulos que reservaron. Reiniciar la demo si una prueba interrumpida dejó reservas. Cubren cookies, autenticación/autorización, origen, DTO sin blobs, reservas enfrentadas, equipo único, pertenencia, versiones, retención de medios, formatos, rangos y reset docente. La atomicidad PostgreSQL se implementó pero requiere una prueba separada sobre una base de ensayo configurada explícitamente: las pruebas demo no prueban aislamiento real de PostgreSQL y nunca deben ejecutarse contra la base de la clase.
+Las pruebas de integración crean nombres ficticios y liberan los dos capítulos que reservaron. Reiniciar la demo si una prueba interrumpida dejó reservas. Cubren libro/imagen/audio públicos sin creación de sesión, rechazo de escrituras anónimas, cookies, autenticación/autorización, origen, DTO sin blobs, reservas enfrentadas, equipo único, pertenencia, versiones, retención de medios, formatos, rangos y reset docente. La atomicidad PostgreSQL se implementó pero requiere una prueba separada sobre una base de ensayo configurada explícitamente: las pruebas demo no prueban aislamiento real de PostgreSQL y nunca deben ejecutarse contra la base de la clase.

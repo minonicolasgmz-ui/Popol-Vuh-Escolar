@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { NextRequest } from 'next/server';
-import { requireSession } from '@/lib/server/auth';
 import { isDemo } from '@/lib/server/config';
 import { ApiError, apiError } from '@/lib/server/errors';
 import { decodeMedia, parseRange } from '@/lib/server/media';
@@ -11,7 +10,6 @@ export const runtime = 'nodejs';
 type Context = { params: Promise<{ id: string; kind: string }> };
 async function serve(request: NextRequest, { params }: Context, head = false) {
   try {
-    requireSession(request);
     const { id, kind } = await params;
     validId(id);
     if (kind !== 'image' && kind !== 'audio') throw new ApiError(404, 'Archivo no encontrado.', 'NOT_FOUND');
@@ -21,7 +19,7 @@ async function serve(request: NextRequest, { params }: Context, head = false) {
     if (value.startsWith('https://')) return new Response(null, { status: 307, headers: { Location: value, 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer' } });
     const { bytes, contentType } = decodeMedia(value, kind, isDemo());
     const etag = `"${createHash('sha256').update(`${id}:${kind}:${updatedAt.toISOString()}:${bytes.length}`).digest('hex').slice(0, 32)}"`;
-    const headers: Record<string, string> = { 'Content-Type': contentType, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-cache', Vary: 'Cookie', ETag: etag, 'Last-Modified': updatedAt.toUTCString(), 'Content-Security-Policy': "default-src 'none'; sandbox", 'Referrer-Policy': 'no-referrer' };
+    const headers: Record<string, string> = { 'Content-Type': contentType, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-cache', ETag: etag, 'Last-Modified': updatedAt.toUTCString(), 'Content-Security-Policy': "default-src 'none'; sandbox", 'Referrer-Policy': 'no-referrer' };
     if (request.headers.get('if-none-match') === etag) return new Response(null, { status: 304, headers });
     let range: ReturnType<typeof parseRange> = null;
     if (kind === 'audio') {

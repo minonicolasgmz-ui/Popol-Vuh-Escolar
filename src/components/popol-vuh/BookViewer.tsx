@@ -57,7 +57,7 @@ export default function BookViewer() {
       {checking && <LoaderCircle className="reader-spinner" aria-label="Cargando libro" />}
       {error && <p role="alert">{error}</p>}
       {!checking && <button className="reader-button" onClick={() => void refresh()}><RefreshCw size={18} />Volver a buscar</button>}
-      {chapters && <button className="reader-button" onClick={back}><BookOpen size={18} />Ir a los capítulos</button>}
+      {chapters && <button className="reader-button" onClick={back}><BookOpen size={18} />{currentGroup || isAdmin ? 'Ir a los capítulos' : 'Volver al inicio'}</button>}
     </div>
   </div>;
 

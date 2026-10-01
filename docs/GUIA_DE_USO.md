@@ -1,5 +1,9 @@
 # Popol Vuh Escolar: guía de uso
 
+## Para leer el libro
+
+Desde la pantalla de inicio, tocá **Abrir el libro**. Podés leer, ver las ilustraciones y escuchar las voces de la clase sin ingresar nombres. El botón Volver te lleva al inicio. También podés abrir directamente `/libro` y recargar esa página como visitante.
+
 ## Para la pareja
 
 1. En el mismo celular, escriban los dos nombres e ingresen. Si vuelven desde ese dispositivo, elijan continuar con su equipo.
